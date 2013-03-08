@@ -113,7 +113,18 @@ class Agent:
 	def get_utility(plan):
 		""" Return the internal utility of a plan.
 		"""
-		utility = 0
+		# Build list of all known plans
+		plans = []
+		plans += opinions
+		plans += (self.own_plan, self.own_util)
+		for agent, plan_mem in self.others_plan.items():
+			plans += plan_mem
+
+		results = np.array(map(lambda x, y: self.weights(x, plan), plans))
+
+		denom = np.sum(results)
+
+		utility = np.sum(np.array(map(lambda x, y: (self.weights(x, plan) / denom) * y, plans)))
 
 		return utility
 
@@ -146,6 +157,17 @@ class Agent:
 		plan.
 		"""
 		plan, utility = opinion
+		def p_accept(plan):
+			""" Returns the probability of accepting a
+			plan based on current temp and distance from
+			own plan.
+			"""
+			a = np.array(plan_a)
+			b = np.array(self.own_plan)
+			norm = numpy.linalg.norm((a - b), ord=1)
+			return np.exp(-pow(norm, 2) / self.temp)
+
+		return np.random.rand() < p_accept(plan)
 
 
 	def update():
@@ -172,6 +194,17 @@ class Agent:
 
 	def update_temperature(new_temp):
 		self.temp = new_temp
+
+
+	def get_weight(plan_a, plan_b):
+		""" Get the weight of plan_b as the normalised
+		inverse square distance from plan_a.
+		"""
+
+		a = np.array(plan_a)
+		b = np.array(plan_b)
+		norm = numpy.linalg.norm((a - b), ord=1)
+		return pow(norm, -2)
 
 
 class Discussion:
