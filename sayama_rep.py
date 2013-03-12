@@ -1,6 +1,7 @@
 import numpy as np
 import random
 import collections
+import scipy.optimize as opt
 
 def cartesian(arrays, out=None):
     """
@@ -57,19 +58,38 @@ def landscape(resolution, dimensions, utility_fn):
 		""" Returns the fitness landscape constructed from some
 		utility function, discretized at the specified resolution.
 		"""
-		aspects = [np.arange(resolution, 1, resolution)] * dimensions
+		aspects = [np.arange(0, 1, resolution)] * dimensions
 		points = cartesian(aspects)
 		return [(x, utility_fn(x)) for x in points]
 
 
-def dump_landscape(file, dimensions, landscape):
+def dump_landscape(file_name, dimensions, landscape):
 	""" Dump a landscape to a file.
 	"""
-
+	file = open(file_name, 'w')
+	line = "X%d," * dimensions + "utility\n"
+	file.write(line % tuple(range(0, dimensions)))
+	file.close()
 	line = "%f," * dimensions + "%f\n"
 	for record in landscape:
 		points, utility = record
+		# print line % tuple(list(points) + [utility])
+		file = open(file_name, 'a')
 		file.write(line % tuple(list(points) + [utility]))
+		file.close()
+
+
+def dump_trajectories(file_name, dimensions, trajectories):
+	file = open(file_name, 'w')
+	line = "X%d," * dimensions + "Agent\n"
+	file.write(line % tuple(range(0, dimensions)))
+	file.close()
+	line = "%f," * dimensions + "%f\n"
+	for key, item in trajectories.items():
+		for points in item:
+			file = open(file_name, 'a')
+			file.write(line % tuple(list(points) + [key]))
+			file.close()
 
 
 class Agent:
@@ -94,8 +114,10 @@ class Agent:
 	"""
 
 
-	def __init__(self, dimensions, noise, temp, num_memory, num_opinions, search_radius, global_util):
+	def __init__(self, dimensions, noise, temp, num_memory, num_opinions, search_radius, global_util,
+		player_id):
 		# Randomly initialize own plan
+		self.own_plan = None
 		own_plan = np.random.random(dimensions)
 		self.opinions = set([])
 		self.others_plan = {}
@@ -106,19 +128,16 @@ class Agent:
 		self.num_memory = num_memory
 		self.search_radius = search_radius
 		self.temp = temp
+		self.player_id = player_id
 
 
 	def set_other_players(self, players):
 		""" Add all the other players to mental model.
 		"""
 
-		print "startingplayers",self.others_plan
 		for player in players:
 			if player is not self:
 				self.others_plan[player] = collections.deque([], num_memory)
-			else:
-				print "Self:",self,"Other:",player
-		print "players",self.others_plan
 
 
 	def sample(self, utility_fn, num_opinions, noise, dimensions):
@@ -136,21 +155,26 @@ class Agent:
 		# Build list of all known plans
 		plans = []
 		plans += self.opinions
-		#if self.own_plan != None:
-		#	plans += [(tuple(self.own_plan), self.own_util)]
+		if self.own_plan != None:
+			plans += [(tuple(self.own_plan), self.own_util)]
 		for agent, plan_mem in self.others_plan.items():
 			plans += plan_mem
 
 
-		#print plans
-		#print map(lambda x: self.get_weight(x[0], plan), plans)
+		# If the plan is identical with one we know, just return that
+		# utility
+		for opinion in plans:
+			saved_plan, util = opinion
+			if np.array_equal(plan, saved_plan):
+				#print "Found saved plan."
+				return util
 
 		results = np.array(map(lambda x: self.get_weight(x[0], plan), plans))
 
 		denom = np.sum(results)
 
 		utility = np.sum(np.array(map(lambda x: (self.get_weight(x[0], plan) / denom) * x[1], plans)))
-		#print denom, utility, plan, results
+		#print "New util.",denom, utility, plan, results
 
 		return utility
 
@@ -166,7 +190,7 @@ class Agent:
 			support = self.support(opinion)
 		# Remember the opinion
 		self.others_plan[agent].appendleft(opinion)
-		print self, "considered plan by", agent, incorp, support, "Response to plan", opinion
+		#print self, "considered plan by", agent, incorp, support, "Response to plan", opinion
 		return support or incorp
 
 
@@ -174,6 +198,7 @@ class Agent:
 		""" Choose whether to incorporate a new opinion into
 		this agent's plan.
 		"""
+		#print opinion, "opinion"
 		plan, utility = opinion
 		expect_util = self.get_utility(plan)
 		if expect_util > self.own_util:
@@ -207,25 +232,39 @@ class Agent:
 		""" Search for a new, more optimal plan within search
 		radius.
 		"""
-		own_plan = self.own_plan + np.random.random(len(self.own_plan)) * self.search_radius
-		self.own_util = self.get_utility(own_plan)
-		self.own_plan = own_plan
+		# Use scipy.optimise.minimize here
+		def f(plan):
+			""" Negative of utility function for
+			minimising.
+			"""
+			return -self.get_utility(plan)
+		search_bounds = [(max(x - self.search_radius, 0), min(x + self.search_radius, 1)) for x in self.own_plan]
+		new_plan = opt.minimize(f,np.array(self.own_plan),bounds=search_bounds, method='L-BFGS-B',tol=1e-16, options={'disp':False})
+		self.own_util = self.get_utility(new_plan.x)
+		#print search_bounds
+		print self.own_plan, "New Plan", new_plan.x, new_plan.success
+		self.own_plan = new_plan.x
 
 
 	def choose_opinion(self, working_plan):
 		""" Make a suggestion to modify an aspect
 		of the group plan.
 		"""
-		util_working = self.get_utility(working_plan)
-		tmp_plan = list(working_plan)
-		best_plan = working_plan
-		util_best = util_working
+		# Work out possible new plans
+		possible_plans = []
 		for i in range(0, len(working_plan)):
 			tmp_plan = list(working_plan)
 			tmp_plan[i] = self.own_plan[i]
-			if self.get_utility(tmp_plan) > util_best:
-				best_plan = tuple(tmp_plan)
-		return (best_plan, util_best)
+			#print tmp_plan, "Tmp plan"
+			possible_plans += [(tuple(tmp_plan), self.get_utility(tmp_plan))]
+		# Make roulette wheel
+		wheel = []
+		#print possible_plans
+		for plan in possible_plans:
+			#print plan, "plan"
+			wheel += [plan] * int(1 / (1 - plan[1]))
+		#print "wheel",wheel
+		return random.choice(wheel)
 			
 
 	def set_temperature(self, new_temp):
@@ -241,8 +280,6 @@ class Agent:
 		b = np.array(plan_b)
 		norm = np.linalg.norm((a - b), ord=1)
 		#print a, b, norm, "weight", pow(norm, -2)
-		if norm == 0.0:
-			norm = 1.0
 		return pow(norm, -2)
 
 
@@ -293,19 +330,21 @@ class Discussion:
 		self.alpha = alpha
 		self.generate_frequencies()
 		self.consensus_threshold = consensus_threshold
+		self.trajectories = {-1:[]}
 		# Make players
 		for i in range(0, num_players):
-			self.players += [Agent(dimension, noise, 0, num_memory, num_opinions, search_radius, self.true_utility)]
+			self.players += [Agent(dimension, noise, 0, num_memory, num_opinions, search_radius, self.true_utility, i+1)]
 		# Inform of fellows
 		for player in self.players:
 			player.set_other_players(self.players)
+			self.trajectories[player.player_id] = []
 
 
 	def generate_frequencies(self):
 		""" Populate frequencies.
 		"""
 		self.frequencies = [[random.uniform(0, 50.) for y in range(0, self.num_frequencies)] for x in range(0, self.dimension)]
-		print self.frequencies
+		# print self.frequencies
 
 
 	def true_utility(self, plan):
@@ -405,19 +444,28 @@ class Discussion:
 		""" Run a discussion.
 		"""
 		for i in range(1, int(self.max_it)):
+			self.store_trajectories()
 			self.current_it = float(i)
 			self.do_turn()
 			if self.consensus_reached(self.consensus_threshold):
 				return None
 
+	def store_trajectories(self):
+		""" Store the group plan, and each agent's plan.
+		"""
+		self.trajectories[-1] += [tuple(self.working_plan)]
+		for player in self.players:
+			self.trajectories[player.player_id] += [tuple(player.own_plan)]
+
+
 
 if __name__=="__main__":
 	dimension = 2
 	num_players = 6
-	num_memory = 0
+	num_memory = 1
 	num_opinions = 20
 	num_frequencies = 5
-	max_it = 200
+	max_it = 100
 	alpha = 0.05
 	noise = 0.2
 	search_radius = 0.005
@@ -425,8 +473,10 @@ if __name__=="__main__":
 	discussion = Discussion(dimension, num_players, num_memory, num_opinions, num_frequencies, 
 		max_it, alpha, noise, search_radius, consensus_threshold)
 	#print landscape(search_radius, dimension, discussion.true_utility)
-	landscape_file = open("landscape.tsv", 'w')
+	landscape_file = "landscape.tsv"
 	dump_landscape(landscape_file, dimension, landscape(0.02, dimension, discussion.true_utility))
-	landscape_file.close()
-	#discussion.do_discussion()
+	discussion.do_discussion()
+	trajectory_file = "trajectories.csv"
+	dump_trajectories(trajectory_file, dimension, discussion.trajectories)
+
 
