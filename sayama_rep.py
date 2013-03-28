@@ -3,11 +3,12 @@ import random
 import collections
 import scipy.optimize as opt
 from itertools import combinations
+import quadtree
 
 # Default settings
 dimension = 2
 num_players = 6
-num_memory = 1
+num_memory = 10
 num_opinions = 20
 num_frequencies = 5
 max_it = 100
@@ -105,6 +106,23 @@ def dump_trajectories(file_name, dimensions, trajectories):
             file.write(line % tuple(list(points) + [key]))
             file.close()
 
+def dump_experiment(file_name, results):
+    file = open(file_name, 'w')
+    line = ",".join(results['fields']) + "\n"
+    file.write(line)
+    file.close()
+    for result in results['results']:
+        file = open(file_name, 'a')
+        line = ",".join(str(x) for x in result) + "\n"
+        file.write(line)
+        file.close()
+
+def random_plan(dimensions, bounds):
+    """ Generate a random plan within the given bounds of
+    the specified number of dimensions.
+    """
+    return (bounds[1] - bounds[0]) * np.random.random(dimensions) + bounds[0]
+
 
 class Agent:
     """ A simple planning agent.
@@ -128,10 +146,10 @@ class Agent:
     """
 
     def __init__(self, dimensions, noise, temp, num_memory, num_opinions, search_radius, global_util,
-        player_id):
+        player_id, bounds):
         # Randomly initialize own plan
         self.own_plan = None
-        own_plan = np.random.random(dimensions)
+        own_plan = random_plan(dimensions, bounds)
         self.opinions = set([])
         self.others_plan = {}
         self.sample(global_util, num_opinions, noise, dimensions)
@@ -142,6 +160,8 @@ class Agent:
         self.search_radius = search_radius
         self.temp = temp
         self.player_id = player_id
+        self.bounds = bounds
+        self.dimension = dimensions
 
     def set_other_players(self, players):
         """ Add all the other players to mental model.
@@ -172,25 +192,28 @@ class Agent:
         for agent, plan_mem in self.others_plan.items():
             plans += plan_mem
 
+        plan_list, utils = zip(*plans)
+        plan_list = np.array(plan_list)
+        utils = np.array(utils)
+        
+        #print plan
+        #util_ = np.sum(utils[np.unique(np.where(plan_list == plan)[0])])
+        matches = np.where(plan_list == plan)[0]
+
         # If the plan is identical with one we know, weight goes to infinity,
         # so return sum of utils of identical plans?
-        for opinion in plans:
-            saved_plan, util = opinion
-            if np.array_equal(plan, saved_plan):
-                print "Found saved plan."
-                utility += util
-                matched = True
-        if matched:
-            return utility
+        if matches.size > 0:
+            return np.sum(utils[np.unique(matches[0])])
 
-        results = np.array(map(lambda x: self.get_weight(x[0], plan), plans))
+        weights = np.array([self.get_weight(x, plan) for x in plan_list])
+        #results = np.array(map(lambda x: self.get_weight(x[0], plan), plans))
+        #denom = np.sum(results)
+        util = np.sum(weights / np.sum(weights) * np.array(utils))
 
-        denom = np.sum(results)
-
-        utility = np.sum(np.array(map(lambda x: (self.get_weight(x[0], plan) / denom) * x[1], plans)))
+        #utility = np.sum(np.array(map(lambda x: (self.get_weight(x[0], plan) / denom) * x[1], plans)))
         #print "New util.",denom, utility, plan, results
-
-        return utility
+        #assert(util == utility)
+        return util
 
     def consider_plan(self, agent, opinion):
         """ Consider a proposed change to the group plan
@@ -234,8 +257,9 @@ class Agent:
             a = np.array(plan)
             b = np.array(self.own_plan)
             #print a, b, "plans"
-            norm = np.linalg.norm((a - b), ord=None)
-            return np.exp(-pow(norm, 2) / self.temp)
+            c = a - b
+            norm = c.dot(c)
+            return np.exp(-norm / self.temp)
 
         return np.random.rand() < p_accept(plan)
 
@@ -249,7 +273,9 @@ class Agent:
             minimising.
             """
             return -self.get_utility(plan)
-        search_bounds = [(max(x - self.search_radius, 0), min(x + self.search_radius, 1)) for x in self.own_plan]
+        min_bounds = [max(self.own_plan[x] - self.search_radius,self.bounds[0][x]) for x in range(self.dimension)]
+        max_bounds = [min(self.own_plan[x] + self.search_radius,self.bounds[1][x]) for x in range(self.dimension)]
+        search_bounds = zip(min_bounds, max_bounds)
         new_plan = opt.minimize(f, np.array(self.own_plan), bounds=search_bounds, method='L-BFGS-B', tol=1e-16, options={'disp': False})
         self.own_util = self.get_utility(new_plan.x)
         #print search_bounds
@@ -277,7 +303,8 @@ class Agent:
 
         a = np.array(plan_a)
         b = np.array(plan_b)
-        norm = np.linalg.norm((a - b), ord=None)
+        c = a - b
+        norm = np.sqrt(c.dot(c))
         if norm == 0:
             return 0.
         #print a, b, norm, "weight", pow(norm, -2)
@@ -290,7 +317,8 @@ class Agent:
 
         a = np.array(self.own_plan)
         b = np.array(plan)
-        return np.linalg.norm((a - b), ord=None)
+        c = a - b
+        return np.sqrt(c.dot(c))
 
     def diff_util(self, utility_fn):
         """ Returns a utility function that is the difference
@@ -333,7 +361,7 @@ class HeadlessChicken(Agent):
         possible_plans = []
         for i in range(0, len(working_plan)):
             tmp_plan = list(working_plan)
-            tmp_plan[i] = np.random.rand()
+            tmp_plan[i] = (self.bounds[i][1] - self.bounds[i][0]) * np.random.rand() + self.bounds[i][0]
             #print tmp_plan, "Tmp plan"
             possible_plans += [(tuple(tmp_plan), self.get_utility(tmp_plan))]
         return self.weighted_choice(possible_plans)
@@ -371,7 +399,8 @@ class Discussion:
         self.theta = 0.
         self.search_radius = search_radius
         self.frequencies = [[]]
-        self.working_plan = np.random.random(dimension)
+        self.bounds = np.array([np.zeros(dimension), np.ones(dimension)])
+        self.working_plan = random_plan(dimension, self.bounds)
         self.dimension = dimension
         self.num_frequencies = num_frequencies
         self.num_players = num_players
@@ -383,14 +412,28 @@ class Discussion:
         self.distances = {-1: []}
         self.max_sum = self.find_max_s()
         self.min_sum = self.find_min_s()
+        self.num_players = num_players
+        self.noise = noise
+        self.num_memory = num_memory
+        self.num_opinions = num_opinions
+        self.init_players()
+
+    def init_players(self):
         # Make players
-        for i in range(0, num_players):
-            self.players += [Agent(dimension, noise, 0, num_memory, num_opinions, search_radius, self.true_utility, i+1)]
+        for i in range(0, self.num_players):
+            self.players += [Agent(self.dimension, self.noise, 0, self.num_memory, self.num_opinions, self.search_radius, self.true_utility, i+1, self.bounds)]
         # Inform of fellows
         for player in self.players:
             player.set_other_players(self.players)
             self.trajectories[player.player_id] = []
             self.distances[player.player_id] = []
+
+    def set_bounds(self, bounds):
+        self.bounds = bounds
+        self.working_plan = random_plan(self.dimension, bounds)
+        for player in self.players:
+            player.bounds = bounds
+            player.own_plan = random_plan(self.dimension, bounds)
 
     def generate_frequencies(self):
         """ Populate frequencies.
@@ -409,6 +452,9 @@ class Discussion:
         return utility
 
     def find_max_s(self):
+        """ Use an initial brute force search followed by scipy
+        optimisation to find the maximum of the s function.
+        """
         def f(plan):
             return -self.s_eq(plan)
         search_bounds = [(0, 1)] * self.dimension
@@ -417,6 +463,9 @@ class Discussion:
         return -minimised['fun']
 
     def find_min_s(self):
+        """ Use an initial brute force search followed by scipy
+        optimisation to find the minimum of the s function.
+        """
         search_bounds = [(0, 1)] * self.dimension
         grid = tuple([(0, 1, self.search_radius)] * self.dimension)
         f = self.s_eq
@@ -444,33 +493,33 @@ class Discussion:
                 eq += "sin(%fx_%d) + " % (self.frequencies[i][j], i)
         return eq
 
-    def choose_speaker(self):
+    def choose_speaker(self, players):
         """ Pick somebody at random to make a suggestion.
         """
-        return random.choice(self.players)
+        return random.choice(players)
 
-    def update_plan(self, opinion, proposer):
+    def update_plan(self, opinion, proposer, players):
         """ Incorporate an opinion into the global plan
         if enough yes votes are taken.
         """
-        if self.motion_carried(self.vote(proposer, opinion)):
+        if self.motion_carried(self.vote(proposer, opinion, players), players):
             self.working_plan, util = opinion
-            print "Carried", opinion
-            print "Actual util", self.true_utility(self.working_plan)
+            #print "Carried", opinion
+            #print "Actual util", self.true_utility(self.working_plan)
 
-    def motion_carried(self, yes_votes):
+    def motion_carried(self, yes_votes, players):
         """ Return true if this plan has enough votes
         to replace the group plan.
         """
         result = 1. + yes_votes
-        result /= len(self.players)
+        result /= len(players)
         return result > self.theta
 
-    def vote(self, proposer, opinion):
+    def vote(self, proposer, opinion, players):
         """ Take a vote on a proposed change.
         """
         yes_votes = 0
-        for player in self.players:
+        for player in players:
             if player is not proposer:
                 if player.consider_plan(proposer, opinion):
                     yes_votes += 1
@@ -481,79 +530,84 @@ class Discussion:
         """
         self.theta = self.current_it / self.max_it
 
-    def update_temperature(self):
+    def update_temperature(self, players):
         """ Update cognition temperature of agents.
         """
         temp = self.alpha * (self.max_it / self.current_it)
-        for agent in self.players:
+        for agent in players:
             agent.temp = temp
 
-    def do_turn(self):
+    def do_turn(self, players):
         """ Iterate the discussion.
         """
-        self.update_temperature()
-        self.update_plans()
+        self.update_temperature(players)
+        self.update_plans(players)
         self.update_theta()
-        speaker = self.choose_speaker()
+        speaker = self.choose_speaker(players)
         opinion = speaker.choose_opinion(self.working_plan)
-        print speaker, "proposed", opinion
-        self.update_plan(opinion, speaker)
+        #print speaker, "proposed", opinion
+        self.update_plan(opinion, speaker, players)
 
-    def update_plans(self):
+    def update_plans(self, players):
         """ Have all the agents search for a better plan.
         """
-        for agent in self.players:
+        for agent in players:
             agent.update()
 
-    def consensus_reached(self, threshold):
+    def consensus_reached(self, threshold, players):
         """ Return true if the sum of distances between individual
         plans and the group plan is less than threshold.
         """
         distance_sum = 0.
-        for player in self.players:
+        for player in players:
             distance_sum += player.get_distance(self.working_plan)
         return distance_sum < threshold
 
-    def get_distance(self):
+    def get_distance(self, players):
         """ Return the sum of distances from the working plan.
         """
         distance_sum = 0.
-        for player in self.players:
+        for player in players:
             distance_sum += player.get_distance(self.working_plan)
         return distance_sum
 
-    def do_discussion(self):
+    def do_discussion(self, players=None):
         """ Run a discussion.
         """
+        self.working_plan = random_plan(self.dimension, self.bounds)
+        if players is None:
+            players = self.players
         for i in range(1, int(self.max_it)):
-            self.store_trajectories()
-            self.store_plan_distance()
             self.current_it = float(i)
-            self.do_turn()
-            if self.consensus_reached(self.consensus_threshold):
+            self.store_trajectories(players)
+            self.store_plan_distance(players)
+            self.do_turn(players)
+            if self.consensus_reached(self.consensus_threshold, players):
                 return None
 
-    def store_trajectories(self):
+    def store_trajectories(self, players):
         """ Store the group plan, and each agent's plan.
         """
         self.trajectories[-1] += [tuple(self.working_plan)]
-        for player in self.players:
+        for player in players:
             self.trajectories[player.player_id] += [tuple(player.own_plan)]
 
-    def store_plan_distance(self):
+    def store_plan_distance(self, players):
         """ Record the sum of distance to the working plan, and the distances of
         individual agents.
         """
         self.distances[-1] += [self.get_distance]
-        for player in self.players:
+        for player in players:
             self.distances[player.player_id] += [player.get_distance(self.working_plan)]
 
-    def pairwise_convergence(self, n):
+    def pairwise_convergence(self, n, players=None):
         """ Compute the average percentage difference in utility functions
         of all agents across n random points in the problem space.
         """
+        if players is None:
+            players = self.players
         diff_sum = 0.
-        pairs = set(combinations(self.players, 2))
+        pairs = set(combinations(players, 2))
         for a, b in pairs:
             fn = a.abs_diff_util(b.get_utility)
             pair_sum = 0.
@@ -567,22 +621,115 @@ class Discussion:
             diff_sum += pair_sum / n
         return diff_sum / len(pairs)
 
-class StagedDiscussion(Discussion):
-    """ A discussion with distinct stages.
+class ChickenDiscussion(Discussion):
+    """ A discussion with some number of headless Chicken
+    participants. """
+
+    def __init__(self, dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, chickens):
+        self.chickens = chickens
+        super(Discussion, self).__init__(dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold)
+
+    def init_players(self):
+        """ Make players, with some number of them chickens.
+        """
+        for i in range(0, self.num_chickens):
+            self.players += [HeadlessChicken(self.dimension, self.noise, 0, self.num_memory, self.num_opinions, self.search_radius, self.true_utility, i+1, self.bounds)]
+        for i in range(self.num_chickens, self.num_players):
+            self.players += [Agent(self.dimension, self.noise, 0, self.num_memory, self.num_opinions, self.search_radius, self.true_utility, i+1, self.bounds)]
+        # Inform of fellows
+        for player in self.players:
+            player.set_other_players(self.players)
+            self.trajectories[player.player_id] = []
+            self.distances[player.player_id] = []
+
+class StructuredDiscussion(Discussion):
+    """ A phased discussion which frames discussions in progressively
+    larger areas of the problem space.
     """
 
-class StructuredDiscussion(StagedDiscussion):
-    """ A discussion with two phases, one where
-    sections of the topic are considered individually and
-    a second where the big picture is discussed.
-    """
+    def __init__(self, dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, depth):
+        self.depth = depth
+        super(Discussion, self).__init__(dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold)
 
-class PairDiscussion(StagedDiscussion):
+    def make_sections(self):
+        """ Return a set of 2d discussion spaces in an inverted tree.
+        """
+        tree = quadtree.Tree(np.array([np.array([0,0]), np.array([0,1]), np.array([1,1]), np.array([1, 0])]), self.depth)
+        tree.generate()
+        return tree.get_bounds().reverse()
+
+    def do_structured_discussion(self, players=None):
+        """ Run a discussion as a backwards breadth first
+        traversal of the problem space tree.
+        Make a random working, and individual plan within
+        the space. Discuss, then move on.
+        N.b. time in each space needs to relate to q?
+        """
+        for space in self.make_sections():
+            self.set_bounds(space)
+            self.do_discussion()
+
+
+
+class PairDiscussion(Discussion):
     """ A discussion where there is an initial phase
     of pairwise discussions on the topic, followed by a
     group discussion phase.
     """
 
+    def make_pairs(self, players):
+        """ Return a set of all pairs of agents.
+        """
+        return set(combinations(players, 2))
+
+    def do_pair_discussion(self, players=None):
+        """ Run a discussion in pairs of each agent, then
+        a group discussion. N.b. pass on plan to next pair, or new
+        working plan each time?
+        """
+
+        if players is None:
+            players = self.players
+
+        for pair in self.make_pairs(players):
+            self.do_discussion(pair)
+
+
+
+def q_plan_convergence(runs=100):
+    """ Run an experiment recording time to convergence of individual
+    plans to the group plan for q 0 ~ 10.
+    Returns a dictionary mapping q to convergence times.
+    """
+    num_players = 3
+    max_it = 200
+    results = {'fields':['q','run','time'], 'length':runs*10, 'results':[]}
+    # q 0 - 10
+    for num_memory in range(11):
+        # 100 runs of each
+        for i in range(runs):
+            time_to_converge = 0
+            discussion = Discussion(dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold)
+            discussion.do_discussion()
+            time_to_converge = discussion.current_it
+            results[num_memory] += [[num_memory, i, time_to_converge]]
+    return results
+
+
+def individual_convergence(runs=100, sample_size=1000):
+    num_players = 3
+    max_it = 100
+    consensus_threshold = -1  # No consensus
+    results = {'fields': ['q', 'run', 'convergence'], 'length': runs*50, 'results': []}
+    # q 0 - 10
+    for num_memory in range(51):
+        # 100 runs of each
+        for i in range(runs):
+            discussion = Discussion(dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold)
+            #print discussion.players
+            discussion.do_discussion()
+            results['results'] += [[num_memory, i, discussion.pairwise_convergence(sample_size)]]
+    return results
 
 
 if __name__ == "__main__":
@@ -597,3 +744,4 @@ if __name__ == "__main__":
     dump_landscape("end_l.csv", dimension, landscape(0.04, dimension, agent_1.diff_util(agent_2.get_utility)))
     trajectory_file = "trajectories.csv"
     dump_trajectories(trajectory_file, dimension, discussion.trajectories)
+    dump_experiment("convergence.csv",individual_convergence(10))
