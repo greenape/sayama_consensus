@@ -3,6 +3,7 @@ import random
 import collections
 import scipy.optimize as opt
 from itertools import combinations
+from time import time
 import quadtree
 
 # Default settings
@@ -203,6 +204,7 @@ class Agent:
         # If the plan is identical with one we know, weight goes to infinity,
         # so return sum of utils of identical plans?
         if matches.size > 0:
+            print "Matched"
             return np.sum(utils[np.unique(matches[0])])
 
         weights = np.array([self.get_weight(x, plan) for x in plan_list])
@@ -276,7 +278,7 @@ class Agent:
         min_bounds = [max(self.own_plan[x] - self.search_radius,self.bounds[0][x]) for x in range(self.dimension)]
         max_bounds = [min(self.own_plan[x] + self.search_radius,self.bounds[1][x]) for x in range(self.dimension)]
         search_bounds = zip(min_bounds, max_bounds)
-        new_plan = opt.minimize(f, np.array(self.own_plan), bounds=search_bounds, method='L-BFGS-B', tol=1e-16, options={'disp': False})
+        new_plan = opt.minimize(f, np.array(self.own_plan), bounds=search_bounds, method='L-BFGS-B')
         self.own_util = self.get_utility(new_plan.x)
         #print search_bounds
         #print self.own_plan, "New Plan", new_plan.x, new_plan.success
@@ -477,11 +479,7 @@ class Discussion:
         of points.
         """
 
-        summation = 0.
-        for i in range(0, len(plan)):
-            for j in range(0, self.num_frequencies):
-                summation += np.sin(self.frequencies[i][j] * plan[i])
-        return summation
+        return np.sum(np.sin(self.frequencies * np.reshape(plan, (-1, 1))))
 
     def print_s_eq(self):
         """ Return the equation that gives the s(v) for the utility
@@ -583,6 +581,7 @@ class Discussion:
             self.store_plan_distance(players)
             self.do_turn(players)
             if self.consensus_reached(self.consensus_threshold, players):
+                print "Consensus reached."
                 return None
 
     def store_trajectories(self, players):
@@ -722,13 +721,23 @@ def individual_convergence(runs=100, sample_size=1000):
     consensus_threshold = -1  # No consensus
     results = {'fields': ['q', 'run', 'convergence'], 'length': runs*50, 'results': []}
     # q 0 - 10
+    count = 1
     for num_memory in range(51):
         # 100 runs of each
         for i in range(runs):
+            print "Run %d of %d" % (count, runs*50)
+            count += 1
+            took = time()
             discussion = Discussion(dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold)
+            took = time() - took
+            print "Made discussion in %fs" % took
             #print discussion.players
+            took = time()
             discussion.do_discussion()
+            took = time() - took
+            print "Had discussion in %fs" % took
             results['results'] += [[num_memory, i, discussion.pairwise_convergence(sample_size)]]
+            print "Dumped results"
     return results
 
 
