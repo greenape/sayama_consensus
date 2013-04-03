@@ -214,8 +214,8 @@ class Agent:
         # so return sum of utils of identical plans?
         #assert(not matches.any())
         if matches.any():
-            print "Matched", matches
-            return np.sum(utils[matches])
+            #print "Matched", matches
+            return np.average(utils[matches])
 
         cdef np.ndarray[DTYPE_t] weights = np.array([self.get_weight(x, np.array(plan)) for x in plan_list], dtype=DTYPE)
         #results = np.array(map(lambda x: self.get_weight(x[0], plan), plans))
@@ -227,31 +227,34 @@ class Agent:
         #assert(util == utility)
         return util
 
-    def consider_plan(self, agent, opinion):
+    def consider_plan(self, agent, opinion, working_plan):
         """ Consider a proposed change to the group plan
         and either incorporate it, or incorporate and support
         it.
         """
-        self.others_plan[agent].appendleft(opinion)
         self.own_util = self.get_utility(self.own_plan)
-        incorp = self.incorporate(opinion)
+        incorp = self.incorporate(opinion, working_plan)
         support = False
         if not incorp:
             support = self.support(opinion)
+        self.others_plan[agent].appendleft(opinion)
         # Remember the opinion
-        print self, "considered plan by", agent, incorp, support, "Response to plan", opinion
+        #print self, "considered plan by", agent, incorp, support, "Response to plan", opinion
         return support or incorp
 
-    def incorporate(self, opinion):
+    def incorporate(self, opinion, working_plan):
         """ Choose whether to incorporate a new opinion into
         this agent's plan.
         """
         #print opinion, "opinion"
         plan, utility = opinion
-        cdef float expect_util = self.get_utility(plan)
-        print self.player_id,"considering",opinion,expect_util,"vs",self.own_plan,",",self.own_util
+        index = np.array(plan) != np.array(working_plan)
+        diff = np.where(index, np.array(plan), self.own_plan)
+        #print plan,"differs from", working_plan,"at",index,"ours is",diff
+        cdef float expect_util = self.get_utility(diff)
+        #print self.player_id,"considering",opinion,expect_util,"vs",self.own_plan,",",self.own_util
         if expect_util > self.own_util:
-            self.own_plan = plan
+            self.own_plan = diff
             self.own_util = expect_util
             return True
         return False
@@ -292,7 +295,9 @@ class Agent:
             """ Constraint keeps solutions within self.radius
             of current plan.
             """
-            return self.search_radius - self.get_distance(x)
+            if self.search_radius > self.get_distance(x):
+                return 1
+            return -1
 
         def constraint_2(x):
             """ Constrain answers within max & min bound.
@@ -338,7 +343,7 @@ class Agent:
         if norm == 0:
             return 0.
         #print a, b, norm, "weight", pow(norm, -2)
-        return np.pow(norm, -2)
+        return pow(norm, -2)
 
     def get_distance(self, plan):
         """ Get the distance between this plan and our
@@ -540,7 +545,7 @@ class Discussion:
         """
         if self.motion_carried(self.vote(proposer, opinion, players), players):
             self.working_plan, util = opinion
-            print "Carried", opinion
+            #print "Carried", opinion
             #print "Actual util", self.true_utility(self.working_plan)
 
     def motion_carried(self, yes_votes, players):
@@ -557,9 +562,9 @@ class Discussion:
         cdef float yes_votes = 0
         for player in players:
             if player is not proposer:
-                if player.consider_plan(proposer, opinion):
+                if player.consider_plan(proposer, opinion, self.working_plan):
                     yes_votes += 1
-        print "%d votes for." % yes_votes
+        #print "%d votes for." % yes_votes
         return yes_votes
 
     def update_theta(self):
@@ -640,21 +645,24 @@ class Discussion:
         for player in players:
             self.distances[player.player_id] += [player.get_distance(self.working_plan)]
 
+    @cython.boundscheck(False)
     def pairwise_convergence(self, int n, players=None):
         """ Compute the average percentage difference in utility functions
         of all agents across n random points in the problem space.
         """
         cdef float util_a, util_b, pair_avg, pair_sum, diff_sum
         cdef np.ndarray[dtype=DTYPE_t] plan
+        cdef int i
         if players is None:
             players = self.players
         pairs = set(combinations(players, 2))
         diff_sum = 0.
+        cdef np.ndarray[dtype=DTYPE_t, ndim=2] plans = np.random.random((n, self.dimension))
         for a, b in pairs:
             fn = a.abs_diff_util(b.get_utility)
             pair_sum = 0.
             for i in xrange(n):
-                plan = np.random.random(self.dimension)
+                plan = plans[i]
                 util_a = abs(a.get_utility(plan))
                 util_b = abs(b.get_utility(plan))
                 pair_avg = util_a + util_b
