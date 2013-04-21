@@ -19,7 +19,7 @@ class Node:
         mininum and maximum in each dimension
         """
         return np.array([np.amin(self.bounds, axis=0),
-                        np.amax(self.bounds, axis=0)])
+                        np.amax(self.bounds, axis=0)], dtype=float)
 
 
 class Tree:

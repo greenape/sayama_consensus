@@ -4,3 +4,13 @@
 *.png
 *.dat
 *.pkg
+.idea
+.DS_Store
+.RData
+.RHistory
+*.sh
+*.html
+*.c
+*.o
+*.so
+*.sublime*
