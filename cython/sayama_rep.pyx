@@ -201,15 +201,28 @@ cdef inline float get_weight(np.ndarray[DTYPE_t] plan_a, np.ndarray[DTYPE_t] pla
 
 def run_discussion(args):
     protocol = args[0]
-    if protocol == 'Standard' or protocol == 'Standard_slow':
-        protocol, run, num_memory, constructor,dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, recording, dimensions, frequencies = args
+    if protocol == 'Standard' or protocol == 'Standard_100':
+        protocol, run, num_memory, constructor,dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, recording, dimensions, frequencies, landscape = args
         discussion = constructor(dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, recording, frequencies)
     else:
-        protocol, run, num_memory, constructor,dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, splits, recording, dimensions, frequencies = args
+        protocol, run, num_memory, constructor,dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, splits, recording, dimensions, frequencies, landscape = args
         discussion = constructor(dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, splits, recording, frequencies)
 
     discussion.do_discussion()
-    return [num_memory, run, discussion.true_plan_utility,discussion.fidelity(1000),discussion.pairwise_convergence(1000),protocol, dimension]
+    return [num_memory, run, discussion.true_plan_utility,discussion.fidelity(1000),discussion.pairwise_convergence(1000),protocol, dimension, landscape]
+
+def run_q_convergence(args):
+    protocol = args[0]
+    if protocol == 'Standard' or protocol == 'Standard_slow':
+        protocol, run, num_memory, constructor,dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, recording, dimensions, frequencies, landscape = args
+        discussion = constructor(dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, recording, frequencies)
+    else:
+        protocol, run, num_memory, constructor,dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, splits, recording, dimensions, frequencies, landscape = args
+        discussion = constructor(dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, splits, recording, frequencies)
+
+    discussion.do_discussion()
+
+    return [num_memory, run, (discussion.current_it + 1) / float(max_it)]
 
 
 class Agent(object):
@@ -413,26 +426,6 @@ class Agent(object):
 
     def __unicode__(self):
         return self.__str__()
-
-
-class HeadlessChicken(Agent):
-    def choose_opinion(self, working_plan):
-        """ Make a suggestion to modify an aspect
-        of the group plan, at random.
-        """
-        # Work out possible new plans
-        possible_plans = []
-        cdef unsigned int i
-        cdef float util_working = get_utility(self, working_plan)
-        for i in xrange(0, len(working_plan)):
-            tmp_plan = list(working_plan)
-            tmp_plan[i] = (self.bounds[i][1] - self.bounds[i][0]) * np.random.rand() + self.bounds[i][0]
-            #print tmp_plan, "Tmp plan"
-            possible_plans += [(tuple(tmp_plan), get_utility(self, tmp_plan) - util_working)]
-        return self.weighted_choice(possible_plans)
-
-    def __str__(self):
-        return "Headless Chicken id: %d" % self.player_id
 
 
 class Discussion(object):
@@ -765,6 +758,7 @@ class ControlDiscussion(Discussion):
         """
         cdef unsigned int num_spaces = self.random_plans
         cdef unsigned int switch_every = int(self.max_it) / num_spaces
+        self.max_it += 100
         cdef unsigned int i
         self.working_plan = random_plan(self.dimension, self.bounds)
         has_next = True
@@ -793,42 +787,6 @@ class ControlDiscussion(Discussion):
         self.true_plan_utility = self.true_utility(self.working_plan)
 
 
-class SlowDiscussion(Discussion):
-    def update_theta(self):
-        """ Update theta as turns progress relative to half the max iterations.
-        """
-        self.theta = self.current_it / (self.max_it / 2.)
-
-    def update_temperature(self, players):
-        """ Update cognition temperature of agents relative to half the max iterations.
-        """
-        cdef float temp = self.alpha * ((self.max_it / 2.) / self.current_it)
-        for agent in players:
-            agent.temp = temp
-
-
-class ChickenDiscussion(Discussion):
-    """ A discussion with some number of headless Chicken
-    participants. """
-
-    def __init__(self, dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, chickens, track_convergence=False):
-        self.num_chickens = chickens
-        super(ChickenDiscussion, self).__init__(dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, track_convergence)
-
-    def init_players(self):
-        """ Make players, with some number of them chickens.
-        """
-        cdef unsigned int i
-        for i in xrange(0, self.num_chickens):
-            self.players += [HeadlessChicken(self.dimension, self.noise, 0, self.num_memory, self.num_opinions, self.search_radius, self.true_utility, i+1, self.bounds)]
-        for i in xrange(self.num_chickens, self.num_players):
-            self.players += [Agent(self.dimension, self.noise, 0, self.num_memory, self.num_opinions, self.search_radius, self.true_utility, i+1, self.bounds)]
-        # Inform of fellows
-        for player in self.players:
-            player.set_other_players(self.players)
-            self.trajectories[player.player_id] = []
-            self.distances[player.player_id] = []
-
 class StructuredDiscussion(Discussion):
     """ A phased discussion which frames discussions in progressively
     larger areas of the problem space.
@@ -839,7 +797,7 @@ class StructuredDiscussion(Discussion):
         super(StructuredDiscussion, self).__init__(dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, track_convergence, frequencies)
 
     def make_sections(self):
-        """ Return a set of 2d discussion spaces in an inverted tree.
+        """ Return a set of 2d/3d discussion spaces in an inverted tree.
         """
         if self.dimension == 3:
             tree = quadtree.Tree(np.array([[0, 0, 0],
@@ -865,6 +823,7 @@ class StructuredDiscussion(Discussion):
         bounds_iterator = spaces.__iter__()
         cdef unsigned int num_spaces = len(spaces)
         cdef unsigned int switch_every = int(self.max_it) / num_spaces
+        self.max_it += 100
         cdef unsigned int i
         self.working_plan = random_plan(self.dimension, self.bounds)
         has_next = True
@@ -893,309 +852,70 @@ class StructuredDiscussion(Discussion):
         self.true_plan_utility = self.true_utility(self.working_plan)
 
 
-
-
-class PairDiscussion(Discussion):
-    """ A discussion where there is an initial phase
-    of pairwise discussions on the topic, followed by a
-    group discussion phase.
+def convergence_fixed_paired(runs=100, players=3, landscapes=1):
+    """ Run some number of replications of the three discussion types and return a results dictionary.
     """
-
-    def __init__(self, dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, randomise_plans=False, track_convergence=False):
-        self.randomise_plans = randomise_plans
-        super(PairDiscussion, self).__init__(dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, track_convergence)
-
-    def make_pairs(self, players):
-        """ Return a set of all pairs of agents.
-        """
-        return set(combinations(players, 2))
-
-
-    def do_discussion(self, players=None):
-        """ Run a discussion.
-        """
-        if players is None:
-            players = self.players
-        pairs = self.make_pairs(players)
-        pairs_iterator = pairs.__iter__()
-        cdef unsigned int num_pairs = len(pairs)
-        cdef unsigned int switch_every = int(self.max_it) / (num_pairs + 1)
-        cdef unsigned int i
-        self.working_plan = random_plan(self.dimension, self.bounds)
-        has_next = True
-        players = pairs_iterator.next()
-        self.set_bounds(self.bounds)
-        for i in xrange(1, int(self.max_it)):
-            #print "%d players right now.." % len(players)
-            self.current_it = float(i)
-            self.store_trajectories(players)
-            self.store_plan_distance(players)
-            if self.track_convergence:
-                self.store_convergence()
-            self.do_turn(players)
-            if len(players) == len(self.players) and self.consensus_reached(self.consensus_threshold, players):
-                self.store_trajectories(players)
-                self.store_plan_distance(players)
-                self.true_plan_utility = self.true_utility(self.working_plan)
-                return None
-            if has_next and i % switch_every == 0:
-                try:
-                    tmp = pairs_iterator.next()
-                    players = tmp
-                    if self.randomise_plans:
-                        self.set_bounds(self.bounds)
-                except StopIteration:
-                    has_next = False
-                    players = self.players
-        self.true_plan_utility = self.true_utility(self.working_plan)
-
-
-
-def q_plan_convergence(runs=100):
-    """ Run an experiment recording time to convergence of individual
-    plans to the group plan for q 0 ~ 10.
-    Returns a dictionary mapping q to convergence times.
-    """
-    num_players = 3
-    max_it = 200
-    results = {'fields':['q','run','time'], 'length':runs*10, 'results':[]}
-    # q 0 - 10
-    cdef unsigned int count = 1
-    cdef unsigned int i
-    for num_memory in xrange(11):
-        # 100 runs of each
-        for i in xrange(runs):
-            print "Run %d of %d" % (count, (runs + 1) * 11)
-            time_to_converge = 0
-            count += 1
-            took = time()
-            discussion = Discussion(dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold)
-            took = time() - took
-            print "Made discussion in %fs" % took
-            #print discussion.players
-            took = time()
-            discussion.do_discussion()
-            took = time() - took
-            print "Had discussion in %fs" % took
-            time_to_converge = (discussion.current_it + 1) / float(max_it)
-            results['results'] += [[num_memory, i, time_to_converge]]
-            trajectory_file = "trajectories_mem_%d_run_%d.csv" % (num_memory, i)
-            dump_trajectories(trajectory_file, dimension, discussion.trajectories)
-    return results
-
-
-def experiment_2d_mp(runs=100):
-    """ Record the true utility of final plans.
-    """
-    num_players = 3
-    max_it = 100
+    num_players = players
+    max_it = 50 * num_players
     consensus_threshold = -1  # No consensus
-    results = {'fields': ['q', 'run', 'utility','max_sum','fidelity','convergence', 'protocol','dimensions'], 'results': []}
-    # q 0 - 10
-    cdef unsigned int count = 1
-    cdef unsigned int i, step
-    discussions = []
-    for num_memory in [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50]:
-        # 100 runs of each
-        for i in xrange(runs):
-            print "Making run %d of %d.." % (count, runs*11)
-            count += 1
-            discussions += [('Structured', i, num_memory, StructuredDiscussion,dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, 2, False, 2, None)]
-            discussions += [('Standard', i, num_memory, Discussion,dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, False, 2, None)]
-            discussions += [('Control', i, num_memory, ControlDiscussion,dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, 21, False, 2, None)]
-            #ctrl_discussion.do_discussion()
-            #results['results'] += [[num_memory, i, discussion.true_plan_utility, discussion.max_sum,discussion.fidelity(1000),discussion.pairwise_convergence(1000), "Standard", 2]]
-            #results['results'] += [[num_memory, i, struct_discussion.true_plan_utility, struct_discussion.max_sum,struct_discussion.fidelity(1000),struct_discussion.pairwise_convergence(1000), "Structured", 2]]
-            #results['results'] += [[num_memory, i, ctrl_discussion.true_plan_utility,ctrl_discussion.max_sum,ctrl_discussion.fidelity(1000),ctrl_discussion.pairwise_convergence(1000),'Control', 2]]
-    pool = Pool(processes=4)
-    results['results'] = pool.map(run_discussion, discussions)
-    #print results['results']
-    return results
-
-def experiment_2d_mp_6_player(runs=100):
-    """ Record the true utility of final plans.
-    """
-    num_players = 6
-    max_it = 100
-    consensus_threshold = -1  # No consensus
-    results = {'fields': ['q', 'run', 'utility','max_sum','fidelity','convergence', 'protocol','dimensions'], 'results': []}
-    # q 0 - 10
-    cdef unsigned int count = 1
-    cdef unsigned int i, step
-    discussions = []
-    for num_memory in [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50]:
-        # 100 runs of each
-        for i in xrange(runs):
-            print "Making run %d of %d.." % (count, runs*11)
-            count += 1
-            discussions += [('Structured', i, num_memory, StructuredDiscussion,dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, 2, False, 2, None)]
-            discussions += [('Standard', i, num_memory, Discussion,dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, False, 2, None)]
-            discussions += [('Control', i, num_memory, ControlDiscussion,dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, 21, False, 2, None)]
-            #ctrl_discussion.do_discussion()
-            #results['results'] += [[num_memory, i, discussion.true_plan_utility, discussion.max_sum,discussion.fidelity(1000),discussion.pairwise_convergence(1000), "Standard", 2]]
-            #results['results'] += [[num_memory, i, struct_discussion.true_plan_utility, struct_discussion.max_sum,struct_discussion.fidelity(1000),struct_discussion.pairwise_convergence(1000), "Structured", 2]]
-            #results['results'] += [[num_memory, i, ctrl_discussion.true_plan_utility,ctrl_discussion.max_sum,ctrl_discussion.fidelity(1000),ctrl_discussion.pairwise_convergence(1000),'Control', 2]]
-    random.shuffle(discussions)
-    pool = Pool(processes=4)
-    results['results'] = pool.map(run_discussion, discussions)
-    #print results['results']
-    return results
-
-
-def experiment_2d_mp_6_player_long(runs=100):
-    """ Record the true utility of final plans.
-    """
-    num_players = 6
-    max_it = 145
-    consensus_threshold = -1  # No consensus
-    results = {'fields': ['q', 'run', 'utility','max_sum','fidelity','convergence', 'protocol','dimensions'], 'results': []}
-    # q 0 - 10
-    cdef unsigned int count = 1
-    cdef unsigned int i, step
-    discussions = []
-    for num_memory in [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50]:
-        # 100 runs of each
-        for i in xrange(runs):
-            print "Making run %d of %d.." % (count, runs*11)
-            count += 1
-            discussions += [('Structured', i, num_memory, StructuredDiscussion,dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, 2, False, 2, None)]
-            discussions += [('Standard', i, num_memory, Discussion,dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, False, 2, None)]
-            discussions += [('Control', i, num_memory, ControlDiscussion,dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, 21, False, 2, None)]
-            #ctrl_discussion.do_discussion()
-            #results['results'] += [[num_memory, i, discussion.true_plan_utility, discussion.max_sum,discussion.fidelity(1000),discussion.pairwise_convergence(1000), "Standard", 2]]
-            #results['results'] += [[num_memory, i, struct_discussion.true_plan_utility, struct_discussion.max_sum,struct_discussion.fidelity(1000),struct_discussion.pairwise_convergence(1000), "Structured", 2]]
-            #results['results'] += [[num_memory, i, ctrl_discussion.true_plan_utility,ctrl_discussion.max_sum,ctrl_discussion.fidelity(1000),ctrl_discussion.pairwise_convergence(1000),'Control', 2]]
-    random.shuffle(discussions)
-    pool = Pool(processes=4)
-    results['results'] = pool.map(run_discussion, discussions)
-    #print results['results']
-    return results
-
-def convergence_fixed(runs=100):
-    """ Record the true utility of final plans.
-    """
-    num_players = 3
-    max_it = 151
-    consensus_threshold = -1  # No consensus
-    results = {'fields': ['q', 'run', 'utility','fidelity','convergence', 'protocol','dimensions'], 'results': []}
-    # q 0 - 10
-    cdef unsigned int count = 1
-    cdef unsigned int i, step
-    discussions = []
-    for num_memory in [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50]:
-        # 100 runs of each
-        for i in xrange(runs):
-            print "Making run %d of %d.." % (count, runs*11)
-            count += 1
-            discussions += [('Structured', i, num_memory, StructuredDiscussion,dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, 2, False, 2, None)]
-            discussions += [('Standard', i, num_memory, Discussion,dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, False, 2, None)]
-            discussions += [('Control', i, num_memory, ControlDiscussion,dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, 21, False, 2, None)]
-    random.shuffle(discussions)
-    pool = Pool(processes=4)
-    results['results'] = pool.map(run_discussion, discussions)
-    #print results['results']
-    return results
-
-def convergence_fixed_paired(runs=100):
-    """ Record the true utility of final plans.
-    """
-    num_players = 3
-    max_it = 151
-    consensus_threshold = -1  # No consensus
-    results = {'fields': ['q', 'run', 'utility','fidelity','convergence', 'protocol','dimensions'], 'results': []}
+    results = {'fields': ['q', 'run', 'utility','fidelity','convergence', 'protocol','dimensions','landscape'], 'results': []}
     # q 0 - 10
     cdef unsigned int count = 1
     cdef unsigned int i, step
     discussions = []
     frequencies = []
-    for i in xrange(runs):
+    for i in xrange(landscapes):
         d = Discussion(dimension, num_players, 0, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold)
         frequencies += [d.frequencies]
-    for num_memory in [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50]:
+    for num_memory in xrange(51):
         # 100 runs of each
         for i in xrange(runs):
-            print "Making run %d of %d.." % (count, runs*11)
-            count += 1
-            discussions += [('Structured', i, num_memory, StructuredDiscussion,dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, 2, False, 2, frequencies[i])]
-            discussions += [('Standard', i, num_memory, Discussion,dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, False, 2, frequencies[i])]
-            discussions += [('Control', i, num_memory, ControlDiscussion,dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, 21, False, 2, frequencies[i])]
+            for l in xrange(landscapes):
+                print "Making run %d of %d.." % (count, runs*landscapes*51)
+                count += 1
+                #discussions += [('Structured', i, num_memory, StructuredDiscussion,dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, 2, False, 2, frequencies[l], l)]
+                discussions += [('Standard', i, num_memory, Discussion,dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, False, 2, frequencies[l], l)]
+                discussions += [('Standard_100', i, num_memory, Discussion,dimension, num_players, num_memory, num_opinions, num_frequencies, 100, alpha, noise, search_radius, consensus_threshold, False, 2, frequencies[l], l)]
+                #discussions += [('Control', i, num_memory, ControlDiscussion,dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, 21, False, 2, frequencies[l], l)]
     random.shuffle(discussions)
-    pool = Pool(processes=4)
+    pool = Pool()
     results['results'] = pool.map(run_discussion, discussions)
     #print results['results']
     return results
 
-def convergence_fixed_slow(runs=100):
-    """ Record the true utility of final plans.
+def q_convergence(runs=100, players=3, landscapes=1):
+    """ Run an experiment recording time to convergence of individual
+    plans to the group plan for q 0 ~ 10.
+    Returns a results dictionary.
     """
-    num_players = 3
-    max_it = 151
-    consensus_threshold = -1  # No consensus
-    results = {'fields': ['q', 'run', 'utility','fidelity','convergence', 'protocol','dimensions'], 'results': []}
+    num_players = players
+    max_it = 200
+    consensus_threshold = 0.04
+    results = {'fields': ['q', 'run', 'time'], 'results': []}
     # q 0 - 10
     cdef unsigned int count = 1
     cdef unsigned int i, step
     discussions = []
-    for num_memory in [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50]:
+    frequencies = []
+    for i in xrange(landscapes):
+        d = Discussion(dimension, num_players, 0, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold)
+        frequencies += [d.frequencies]
+    for num_memory in xrange(11):
         # 100 runs of each
         for i in xrange(runs):
-            print "Making run %d of %d.." % (count, runs*11)
-            count += 1
-            discussions += [('Standard_slow', i, num_memory, SlowDiscussion,dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, False, 2, None)]
+            for l in xrange(landscapes):
+                print "Making run %d of %d.." % (count, runs*landscapes*11)
+                count += 1
+                #discussions += [('Structured', i, num_memory, StructuredDiscussion,dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, 2, False, 2, frequencies[l], l)]
+                discussions += [('Standard', i, num_memory, Discussion,dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, False, 2, frequencies[l], l)]
+                #discussions += [('Control', i, num_memory, ControlDiscussion,dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, 21, False, 2, frequencies[l], l)]
     random.shuffle(discussions)
-    pool = Pool(processes=4)
-    results['results'] = pool.map(run_discussion, discussions)
-    #print results['results']
-    return results
-
-def experiment_3d_mp(runs=1):
-    """ Record the true utility of final plans.
-    """
-    num_players = 3
-    max_it = 100
-    consensus_threshold = -1  # No consensus
-    dimension = 3
-    results = {'fields': ['q', 'run', 'utility','max_sum','fidelity','convergence', 'protocol','dimensions'], 'results': []}
-    # q 0 - 10
-    cdef unsigned int count = 1
-    cdef unsigned int i, step
-    discussions = []
-    for num_memory in [0, 5, 10, 25]:
-        # 100 runs of each
-        for i in xrange(runs):
-            print "Making run %d of %d.." % (count, runs*6)
-            count += 1
-            discussions += [('Structured', i, num_memory, StructuredDiscussion,dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, 2, False, 3, None)]
-            discussions += [('Standard', i, num_memory, Discussion,dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, False, 3, None)]
-            discussions += [('Control', i, num_memory, ControlDiscussion,dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, 73, False, 3, None)]
-            #ctrl_discussion.do_discussion()
-            #results['results'] += [[num_memory, i, discussion.true_plan_utility, discussion.max_sum,discussion.fidelity(1000),discussion.pairwise_convergence(1000), "Standard", 2]]
-            #results['results'] += [[num_memory, i, struct_discussion.true_plan_utility, struct_discussion.max_sum,struct_discussion.fidelity(1000),struct_discussion.pairwise_convergence(1000), "Structured", 2]]
-            #results['results'] += [[num_memory, i, ctrl_discussion.true_plan_utility,ctrl_discussion.max_sum,ctrl_discussion.fidelity(1000),ctrl_discussion.pairwise_convergence(1000),'Control', 2]]
-    pool = Pool(processes=4)
-    random.shuffle(discussions)
-    results['results'] = pool.map(run_discussion, discussions)
+    pool = Pool()
+    results['results'] = pool.map(run_q_convergence, discussions)
     #print results['results']
     return results
 
 
 def run():
-    #dump_experiment("individual_convergence_rep.csv",individual_convergence(10, sample_size=1000))
-    #dump_experiment("individual_chicken_convergence_rep.csv",chicken_individual_convergence(100, sample_size=1000))
-    #dump_experiment("q_convergence_rep.csv", q_plan_convergence(100))
-    #dump_experiment("chicken_q_convergence_rep.csv", chicken_q_plan_convergence(100))
-    #dump_experiment("individual_pair_convergence_rep.csv",pair_individual_convergence(100, sample_size=1000))
-    #dump_experiment("pair_q_convergence_rep.csv", pair_q_plan_convergence(100))
-    #dump_experiment("struct_q_convergence.csv", struct_q_plan_convergence(100))
-    #dump_experiment("within_discussion_convergence.csv",within_discussion_convergence())
-    #dump_experiment("struct_pair_convergence.csv", struct_individual_convergence(100))
-    #dump_experiment("individual_pair_convergence_rep.csv",pair_individual_convergence(100, sample_size=1000))
-    #dump_experiment("within_discussion_convergence_control.csv",within_discussion_convergence_control())
-    #dump_experiment("control_individual_convergence.csv",control_individual_convergence(100, sample_size=1000))
-    #dump_experiment("true_util.csv", utility())
-    #dump_experiment("pair_random_convergence.csv",pair_random_convergence(100, sample_size=1000))
-    #dump_experiment("fidelity.csv", fidelity(100))
-    #dump_experiment("2d_mp.csv", experiment_2d_mp())
-    #dump_experiment("2d_mp_6_p_long.csv", experiment_2d_mp_6_player_long())
-    #dump_experiment("convergence_fixed.csv", convergence_fixed())
-    dump_experiment("convergence_fixed_paired.csv", convergence_fixed_paired())
+    dump_experiment("convergence_fixed.csv", convergence_fixed_paired(players=3, runs=1, landscapes=100))
+    dump_experiment("q_convergence.csv", q_convergence(players=3, runs=1, landscapes=100))

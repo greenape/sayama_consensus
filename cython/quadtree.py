@@ -48,9 +48,17 @@ def split(ncube):
     """ Split an n-cube into 2^n equally sized
     child n-cubes.
     """
+    # Shrink the cube
     bottom_left = ncube / 2.
+    # Find the length of a side
     c = bottom_left[1] - bottom_left[0]
     offset = np.sqrt(c.dot(c))
+    # Find how much shrinking it has moved it
+    d = ncube[0] - bottom_left[0]
+    # Move it back
+    bottom_left += d
+    # Get moves in all directions away from bottom corner
     offsets = product([0, offset], repeat=len(c))
+    # Make 2^n shifted copies
     children = [bottom_left.copy() + np.array(x) for x in offsets]
     return np.array(children)
