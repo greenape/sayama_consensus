@@ -1,4 +1,5 @@
 import numpy as np
+from itertools import *
 
 
 class Node:
@@ -10,8 +11,8 @@ class Node:
     def descend(self):
         """ Generate children of this node.
         """
-        for square in split_square(self.bounds):
-            self.children += [Node(square)]
+        for ncube in split(self.bounds):
+            self.children += [Node(ncube)]
         return self.children
 
     def get_bounds(self):
@@ -43,18 +44,21 @@ class Tree:
         """
         return [item.get_bounds() for sublist in self.levels for item in sublist]
 
-
-def split_square(square):
-    """ Subdivide a square into 4 equally sized smaller
-    squares and return an array of arrays of vertices.
+def split(ncube):
+    """ Split an n-cube into 2^n equally sized
+    child n-cubes.
     """
-    v1_a = (square[3] + square[0]) / 2.
-    v2_a = (square[0] + square[1]) / 2.
-    v3_a = (square[1] + square[2]) / 2.
-    v4_a = (square[2] + square[3]) / 2.
-    v5 = np.sum(square, axis=0) / 4.
-
-    return np.array([np.array([square[0], v2_a, v5, v1_a]),
-                    np.array([v2_a, square[1], v3_a, v5]),
-                    np.array([v1_a, v5, v4_a, square[3]]),
-                    np.array([v5, v3_a, square[2], v4_a])])
+    # Shrink the cube
+    bottom_left = ncube / 2.
+    # Find the length of a side
+    c = bottom_left[1] - bottom_left[0]
+    offset = np.sqrt(c.dot(c))
+    # Find how much shrinking it has moved it
+    d = ncube[0] - bottom_left[0]
+    # Move it back
+    bottom_left += d
+    # Get moves in all directions away from bottom corner
+    offsets = product([0, offset], repeat=len(c))
+    # Make 2^n shifted copies
+    children = [bottom_left.copy() + np.array(x) for x in offsets]
+    return np.array(children)
