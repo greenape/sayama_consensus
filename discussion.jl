@@ -43,8 +43,10 @@ consensus_threshold = 0.04
 #Discussion(None, 0., search_radius, None, None, None, dimension, num_frequencies, num_players, max_it, alpha, consensus_threshold, None, None, 0., 0., noise, num_memory, num_opinions, false, 0.)
 
 Discussion() = Discussion(Agent[], 0., search_radius, Float64[], (Float64[], Float64[]), Float64[], dimension, num_frequencies, num_players, max_it, alpha, consensus_threshold, Dict{Int, Array{Any, 1}}(), Dict{Int, Array{Any, 1}}(), 0., 0., noise, num_memory, num_opinions, true, Float64[], 0., 0.)
+Discussion(search_radius, dimension, num_frequencies, num_players, max_it, alpha, consensus_threshold, noise, num_memory, num_opinions) = Discussion(Agent[], 0., search_radius, Float64[], (Float64[], Float64[]), Float64[], dimension, num_frequencies, num_players, max_it, alpha, consensus_threshold, Dict{Int, Array{Any, 1}}(), Dict{Int, Array{Any, 1}}(), 0., 0., noise, num_memory, num_opinions, true, Float64[], 0., 0.)
+Discussion(dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, recording, frequencies) = Discussion(Agent[], 0., search_radius, Float64[], (Float64[], Float64[]), Float64[], dimension, num_frequencies, num_players, max_it, alpha, consensus_threshold, Dict{Int, Array{Any, 1}}(), Dict{Int, Array{Any, 1}}(), 0., 0., noise, num_memory, num_opinions, false, Float64[], 0., 0.)
 
-function init!(self::Discussion, frequencies)
+function init!{Discussion}(self::Discussion, frequencies)
     self.players = Agent[]
     self.bounds = (zeros(self.dimension), ones(self.dimension))
     self.working_plan = random_plan(self.dimension, self.bounds)
@@ -59,10 +61,11 @@ function init!(self::Discussion, frequencies)
     self.min_sum = find_min_s(self)
     
     init_players!(self)
+    return self
     end
 
 function init_players!(discussion::Discussion)
-        
+        discussion.players = Agent[]
         # Make players
         for i in 1:discussion.num_players
             player = Agent(discussion.noise, discussion.num_memory, discussion.search_radius, i, discussion.bounds, discussion.dimension)
