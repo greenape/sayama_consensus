@@ -175,7 +175,7 @@ function update_plan!(discussion::Discussion, opinion, proposer, players::Array{
         """
         if motion_carried(discussion, vote(discussion, proposer, opinion, players), players)
             discussion.working_plan, util = opinion
-            #print "Carried", opinion
+            println("Carried", opinion)
             #print "Actual util", discussion.true_utility(discussion.working_plan)
         end
     end
@@ -233,7 +233,7 @@ function update_plans!(players::Array{Agent})
         end
     end
 
-function consensus_reached(discussion::Discussion, threshold, players::Array{Agent})
+function consensus_reached(discussion::Discussion, players::Array{Agent})
         """ Return true if the sum of distances between individual
         plans and the group plan is less than threshold.
         """
@@ -241,8 +241,8 @@ function consensus_reached(discussion::Discussion, threshold, players::Array{Age
         for player in players
             distance_sum += get_distance(player, discussion.working_plan)
         end
-        #print distance_sum
-        distance_sum < threshold
+        @printf("Distance sum is %f.",distance_sum)
+        distance_sum < discussion.consensus_threshold
     end
 
 function get_distance(discussion::Discussion, players::Array{Agent})
@@ -275,7 +275,7 @@ function do_discussion!(discussion::Discussion, players::Array{Agent})
                 store_convergence!(discussion, players)
             end
             do_turn!(discussion, players)
-            if consensus_reached(discussion, discussion.consensus_threshold, players)
+            if consensus_reached(discussion, players)
                 store_trajectories!(discussion, players)
                 store_plan_distance!(discussion, players)
                 discussion.true_plan_utility = true_utility(discussion, discussion.working_plan)
