@@ -46,6 +46,7 @@ Discussion() = Discussion(Agent[], 0., search_radius, Float64[], (Float64[], Flo
 Discussion(search_radius, dimension, num_frequencies, num_players, max_it, alpha, consensus_threshold, noise, num_memory, num_opinions) = Discussion(Agent[], 0., search_radius, Float64[], (Float64[], Float64[]), Float64[], dimension, num_frequencies, num_players, max_it, alpha, consensus_threshold, Dict{Int, Array{Any, 1}}(), Dict{Int, Array{Any, 1}}(), 0., 0., noise, num_memory, num_opinions, true, Float64[], 0., 0)
 Discussion(dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, recording, frequencies) = Discussion(Agent[], 0., search_radius, Float64[], (Float64[], Float64[]), Float64[], dimension, num_frequencies, num_players, max_it, alpha, consensus_threshold, Dict{Int, Array{Any, 1}}(), Dict{Int, Array{Any, 1}}(), 0., 0., noise, num_memory, num_opinions, false, Float64[], 0., 0)
 
+
 function init!{Discussion}(self::Discussion, frequencies)
     self.players = Agent[]
     self.bounds = (zeros(self.dimension), ones(self.dimension))
@@ -107,7 +108,7 @@ function true_utility(discussion::Discussion, plan)
         utility = summation - discussion.min_sum
         utility /= discussion.max_sum - discussion.min_sum
         if utility > 1 || utility < 0
-            println(string("Utility out of bounds:", utility, "summation =", summation))
+            println("Utility out of bounds: $utility, summation = $summation")
         end
         utility
     end
@@ -175,7 +176,7 @@ function update_plan!(discussion::Discussion, opinion, proposer, players::Array{
         """
         if motion_carried(discussion, vote(discussion, proposer, opinion, players), players)
             discussion.working_plan, util = opinion
-            println("Carried", opinion)
+            println("Carried $opinion")
             #print "Actual util", discussion.true_utility(discussion.working_plan)
         end
     end
@@ -241,7 +242,7 @@ function consensus_reached(discussion::Discussion, players::Array{Agent})
         for player in players
             distance_sum += get_distance(player, discussion.working_plan)
         end
-        @printf("Distance sum is %f.",distance_sum)
+        println("Distance sum is $distance_sum")
         distance_sum < discussion.consensus_threshold
     end
 
@@ -281,7 +282,7 @@ function do_discussion!(discussion::Discussion, players::Array{Agent})
                 discussion.true_plan_utility = true_utility(discussion, discussion.working_plan)
                 return None
             end
-            println("Played turn ",i)
+            println("Played turn $i")
         end
         discussion.true_plan_utility = true_utility(discussion, discussion.working_plan)
     end
@@ -333,7 +334,7 @@ function t_diff(discussion::Discussion, n::Int, players)
             t_sum += t
         end
         t_sum /= length(pairs)
-        println(string("T_avg", t_sum))
+        println("T_avg = $t_sum")
     end
 
 
