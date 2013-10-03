@@ -67,11 +67,11 @@ end
 
 function convergence_fixed_paired(;runs::Int=100, players::Int=3, num_landscapes::Int=100, max_it::Int=100,
 	step_size::Int=1, max_mem::Int=50)
-    """ Run some number of replications of the three discussion types and return a results dictionary.
+    """ Run some number of replications over some number of landscapes and return a results dictionary.
     """
     num_players = players
     consensus_threshold = -1  # No consensus
-    results = ["fields" => ["q", "run", "utility","fidelity","convergence", "protocol","dimensions","landscape"], "results" => []]
+    results = ["fields" => ["q", "run", "utility","fidelity","convergence", "protocol","dimensions"], "results" => []]
     # q 0 - 10
     count = 1
     discussions = Any[]
@@ -82,11 +82,11 @@ function convergence_fixed_paired(;runs::Int=100, players::Int=3, num_landscapes
         push!(landscapes, d)
     end
     
-    for num_memory in 0:50
+    for num_memory in 0:step_size:50
         # 100 runs of each
         for i in 1:runs
             for l in landscapes
-                #println("Making run ",count," of ",runs*num_landscapes*51,"..")
+                #println("Making run $count of $(runs*num_landscapes*(max_mem+1))..")
                 count += 1
                 d = deepcopy(l)
                 d.num_memory = num_memory
