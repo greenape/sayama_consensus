@@ -29,16 +29,16 @@ type Discussion
     current_it::Int
 end
 
-dimension = 2
-num_players = 3
-num_memory = 0
-num_opinions = 20
-num_frequencies = 5
-max_it = 100
-alpha = 0.05
-noise = 0.2
-search_radius = 0.005
-consensus_threshold = 0.04
+const dimension = 2
+const num_players = 3
+const num_memory = 0
+const num_opinions = 20
+const num_frequencies = 5
+const max_it = 100
+const alpha = 0.05
+const noise = 0.2
+const search_radius = 0.005
+const consensus_threshold = 0.04
 
 #Discussion(None, 0., search_radius, None, None, None, dimension, num_frequencies, num_players, max_it, alpha, consensus_threshold, None, None, 0., 0., noise, num_memory, num_opinions, false, 0.)
 
@@ -176,7 +176,7 @@ function update_plan!(discussion::Discussion, opinion, proposer, players::Array{
         """
         if motion_carried(discussion, vote(discussion, proposer, opinion, players), players)
             discussion.working_plan, util = opinion
-            println("Carried $opinion")
+            #println("Carried $opinion")
             #print "Actual util", discussion.true_utility(discussion.working_plan)
         end
     end

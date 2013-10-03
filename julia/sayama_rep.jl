@@ -34,7 +34,7 @@ function q_convergence(;runs::Int=100, players::Int=3, num_landscapes::Int=1)
     num_players = players
     max_it = 200
     consensus_threshold = 0.04
-    results = ["fields"=> ["q", "run", "time"], "results" => []]
+    results = ["fields" => ["q", "run", "time"], "results" => []]
     # q 0 - 10
     count = 1
     discussions = Any[]
@@ -83,7 +83,7 @@ function convergence_fixed_paired(;runs::Int=100, players::Int=3, num_landscapes
     end
     
     for num_memory in 0:step_size:50
-        # 100 runs of each
+        # runs of each
         for i in 1:runs
             for l in landscapes
                 #println("Making run $count of $(runs*num_landscapes*(max_mem+1))..")

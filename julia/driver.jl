@@ -1,6 +1,6 @@
 require("sayama_rep")
 
-r = @time(q_convergence(num_landscapes=1))
+r = @time(q_convergence(runs=10,num_landscapes=1))
 dump_experiment("juliatest.csv", r)
 
 """r = @time(convergence_fixed_paired(num_landscapes=1))
