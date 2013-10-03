@@ -1,4 +1,5 @@
 import Base.push!
+import Base.show
 
 type BoundedQueue
     queue::Vector{Any}
@@ -21,6 +22,10 @@ type Agent
 end
 
 Agent(noise, num_memory, search_radius, player_num, bounds, dimension) = Agent(Float64[], Dict{Array{Float64, 1}, Float64}(), Dict{Agent, BoundedQueue}(), 0., noise, num_memory, search_radius, 0., player_num, bounds, dimension, 100)
+
+function show(io, agent::Agent)
+    print(io, "Player id: $agent.player_id, own plan is $agent.own_plan with utility $agent.own_util.")
+end
 
 function push!(queue::BoundedQueue, item)
     push!(queue.queue, item)
@@ -120,98 +125,98 @@ function set_other_players!(self::Agent, players::Array{Agent})
                 self.others_plan[player] = BoundedQueue(Any[], self.num_memory)
             end
         end
-    end
+end
 
 function sample!(self::Agent, utility_fn, num_opinions::Int, noise::Float64, dimensions::Int)
         """ Sample some number of opinions from the true utility with noise.
         """
-        while length(self.opinions) < num_opinions
-            plan = rand(dimensions)
-            fuzz = (noise + noise) * rand() - noise
-            self.opinions[plan] = utility_fn(plan) + fuzz
-        end
+    while length(self.opinions) < num_opinions
+        plan = rand(dimensions)
+        fuzz = (noise + noise) * rand() - noise
+        self.opinions[plan] = utility_fn(plan) + fuzz
     end
+end
 
-    function consider_plan(self::Agent, agent::Agent, opinion, working_plan::Array{Float64})
+function consider_plan(self::Agent, agent::Agent, opinion::(Array{Float64}, Float64), working_plan::Array{Float64})
         """ Consider a proposed change to the group plan
         && either incorporate it, or incorporate && support
         it.
         """
-        push!(self.others_plan[agent], opinion)
-        self.own_util = get_utility(self, self.own_plan)
-        incorp = incorporate(self, opinion, working_plan)
-        back = false
-        if !incorp
-            back = support(self, opinion)
-        end
+    push!(self.others_plan[agent], opinion)
+    self.own_util = get_utility(self, self.own_plan)
+    incorp = incorporate!(self, opinion, working_plan)
+    back = false
+    if !incorp
+        back = support(self, opinion)
+    end
         # Remember the opinion
         #prself, "considered plan by", agent, incorp, support, "Response to plan", opinion
-        back || incorp
-    end
+    back || incorp
+end
 
-    function where(index::BitArray, x::Array, y::Array)
+function where(index::BitArray, x::Array, y::Array)
         """
         Return an array with values chosen from x or y if the entry
         in index is true or false.
         """
-        map(i -> index[i] ? x[i] : y[i], 1:length(index))
-    end
+    map(i -> index[i] ? x[i] : y[i], 1:length(index))
+end
 
-    function incorporate(self::Agent, opinion, working_plan::Array{Float64})
+function incorporate!(self::Agent, opinion::(Array{Float64}, Float64), working_plan::Array{Float64})
         """ Choose whether to incorporate a new opinion into
         this agent's plan.
         """
         #propinion, "opinion"
-        plan, utility = opinion
-        index = plan .!= working_plan
-        diff = where(index, plan, self.own_plan)
+    plan, utility = opinion
+    index = plan .!= working_plan
+    diff = where(index, plan, self.own_plan)
         #println(plan, typeof(working_plan),"differs from", working_plan, typeof(working_plan),"at",index,"ours is",diff)
-        expect_util = get_utility(self, diff)
+    expect_util = get_utility(self, diff)
         #println(self.player_id,"considering",opinion,expect_util,"vs",self.own_plan,",",self.own_util)
-        if expect_util > self.own_util
-            self.own_plan = diff
-            self.own_util = expect_util
-            return true
-        end
-        false
+    if expect_util > self.own_util
+        self.own_plan = diff
+        self.own_util = expect_util
+        return true
     end
+        false
+end
 
-    function support(self::Agent, opinion)
+function support(self::Agent, opinion::(Array{Float64}, Float64))
         """ Return true to vote the opinion into the global
         plan.
         """
         #propinion, "opinion"
-        plan, utility = opinion
-        rand() < p_accept(self, plan)
-    end
+    plan, utility = opinion
+    rand() < p_accept(self, plan)
+end
 
-    function inverse_util(self::Agent, plan::Array{Float64})
+function inverse_util(self::Agent, plan::Array{Float64})
         """ Negative of utility function for
         minimising.
         """
-        -get_utility(self, plan)
-    end
+    -get_utility(self, plan)
+end
 
-    function constraint_1(self::Agent, x::Array{Float64})
+function constraint_1(self::Agent, x::Array{Float64})
         """ Constrakeeps solutions within self.radius
         of current plan.
         """
-        if self.search_radius > get_distance(self, x)
-            return true
-        end
-        false
+    if self.search_radius > get_distance(self, x)
+        return true
     end
+    false
+end
 
-    function constraint_2(self::Agent, x::Array{Float64})
+function constraint_2(self::Agent, x::Array{Float64})
         """ Constrain answers within max & min bound.
         """
-        if all(self.bounds[2] .>= x) && all(self.bounds[1] .<= x)
-            return true
-        end
-        false
+    if all(self.bounds[2] .>= x) && all(self.bounds[1] .<= x)
+        return true
     end
+    false
+end
 
-    function update!(self::Agent)
+function update!(self::Agent)
         """ Search for a new, more optimal plan within search
         radius.
         
@@ -233,108 +238,107 @@ function sample!(self::Agent, utility_fn, num_opinions::Int, noise::Float64, dim
         new_plan = opt.fmin_cobyla(f, self.own_plan, [radius, bound], disp=1)
         self.own_util = get_utility(self, new_plan)
         #prsearch_bounds
-        #prself.own_plan, "New Plan", new_plan
         self.own_plan = new_plan
         """
-        self.own_plan, self.own_util = hillclimb(self)
+    self.own_plan, self.own_util = hillclimb(self)
+end
+
+function hillclimb(self::Agent)
+    plan = self.own_plan
+    util = self.own_util
+    mutation_prob = 1 / self.dimension
+    step_size = self.search_radius / self.max_evals
+
+    function mutate(x)
+        rand() > mutation_prob ? x : ((rand() *2*step_size) - step_size) + x
     end
 
-    function hillclimb(self::Agent)
-        plan = self.own_plan
-        util = self.own_util
-        mutation_prob = 1 / float(self.dimension)
-        step_size = self.search_radius / float(self.max_evals)
-
-        function mutate(x)
-            rand() > mutation_prob ? x : ((rand() *2*step_size) - step_size) + x
-        end
-
-        for i in 1:self.max_evals
-            candidate = map(mutate, plan)
-            if constraint_2(self, candidate) && constraint_1(self, candidate)
-                candidate_util = get_utility(self, candidate)
-                if candidate_util > util
-                    plan = candidate
-                    util = candidate_util
-                end
+    for i in 1:self.max_evals
+        candidate = map(mutate, plan)
+        if constraint_2(self, candidate) && constraint_1(self, candidate)
+            candidate_util = get_utility(self, candidate)
+            if candidate_util > util
+                plan = candidate
+                util = candidate_util
             end
         end
-        plan, util
     end
+    plan, util
+end
 
 
 
-    function choose_opinion(self::Agent, working_plan::Array{Float64})
+function choose_opinion(self::Agent, working_plan::Array{Float64})
         """ Make a suggestion to modify an aspect
         of the group plan.
         """
         # Work out possible new plans
-        possible_plans = Dict{Array{Float64}, Float64}()
-        util_working = get_utility(self, working_plan)
-        for i in 1:length(working_plan)
-            tmp_plan = deepcopy(working_plan)
-            tmp_plan[i] = self.own_plan[i]
+    possible_plans = Dict{Array{Float64}, Float64}()
+    util_working = get_utility(self, working_plan)
+    for i in 1:length(working_plan)
+        tmp_plan = copy(working_plan)
+        tmp_plan[i] = self.own_plan[i]
             #prtmp_plan, "Tmp plan"
-            possible_plans[tmp_plan] =  get_utility(self, tmp_plan) - util_working
-        end
-
-        weighted_choice(self, possible_plans)
+        possible_plans[tmp_plan] =  get_utility(self, tmp_plan) - util_working
     end
 
+    weighted_choice(self, possible_plans)
+end
 
-    function get_distance{Float64}(self::Agent, plan::Array{Float64})
+
+function get_distance{Float64}(self::Agent, plan::Array{Float64})
         """ Get the distance between this plan && our
         internal plan.
         """
 
-        a = self.own_plan
-        b = plan
-        c = a - b
-        sqrt(dot(c, c))
-    end
+    a = self.own_plan
+    b = plan
+    c = a - b
+    sqrt(dot(c, c))
+end
 
-    function diff_util(self::Agent, utility_fn)
+function diff_util(self::Agent, utility_fn)
         """ Returns a utility function that is the difference
         between own && the one given.
         """
-        function f(plan)
-            return get_utility(self, plan) - utility_fn(plan)
-        end
-        return f
+    function f(plan)
+        return get_utility(self, plan) - utility_fn(plan)
     end
+    return f
+end
 
-    function abs_diff_util(self::Agent, utility_fn)
+function abs_diff_util(self::Agent, utility_fn)
         """ Returns a utility function that is the absolutw
         difference between own && one given.
         """
-        function f(plan)
-            return abs(get_utility(self, plan) - utility_fn(plan))
-        end
-        return f
+    function f(plan)
+        return abs(get_utility(self, plan) - utility_fn(plan))
     end
+    return f
+end
 
-    function weighted_choice(self::Agent, plans)
+function weighted_choice(self::Agent, plans::Dict{Array{Float64}, Float64})
         # Normalize util gains
-        plan_list, util_list = zip(collect(plans)...)
-        utils = collect(util_list)
-        plan_list = collect(plan_list)
-        max_util = max(utils)
-        min_util = min(utils)
-        diff = max_util - min_util
+    plan_list, util_list = zip(collect(plans)...)
+    utils = collect(util_list)
+    plan_list = collect(plan_list)
+    max_util = max(utils)
+    min_util = min(utils)
+    diff = max_util - min_util
 
-        if diff == 0
-            utils = ones(length(utils)) ./ float(length(utils))
-        else
-            utils = (utils - min_util) ./ diff
-        end
-        total = sum(utils)
-        threshold = rand()*total
-        bracket = 0.
-        for i in 1:length(plans)
-            if bracket + utils[i] > threshold
-                return (plan_list[i], get_utility(self, plan_list[i]))
-            end
-            bracket += utils[i]
-        end
-        (plan_list[i], get_utility(self, plan_list[i]))
+    if diff == 0
+        utils = ones(length(utils)) ./ length(utils)
+    else
+        utils = (utils - min_util) ./ diff
     end
+    total = sum(utils)
+    threshold = rand()*total
+    bracket = 0.
+    for i in 1:length(plans)
+        if bracket + utils[i] > threshold
+            return (plan_list[i], get_utility(self, plan_list[i]))
+        end
+        bracket += utils[i]
+    end
+    (plan_list[i], get_utility(self, plan_list[i]))
+end

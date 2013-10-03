@@ -13,7 +13,7 @@ type Discussion
     dimension::Int
     num_frequencies::Int
     num_players::Int
-    max_it::Float64
+    max_it::Int
     alpha::Float64
     consensus_threshold::Float64
     trajectories::Dict{Int, Array{Any, 1}}
@@ -26,7 +26,7 @@ type Discussion
     track_convergence::Bool
     convergence::Array{Float64}
     true_plan_utility::Float64
-    current_it::Float64
+    current_it::Int
 end
 
 dimension = 2
@@ -34,7 +34,7 @@ num_players = 3
 num_memory = 0
 num_opinions = 20
 num_frequencies = 5
-max_it = 100.
+max_it = 100
 alpha = 0.05
 noise = 0.2
 search_radius = 0.005
@@ -42,23 +42,23 @@ consensus_threshold = 0.04
 
 #Discussion(None, 0., search_radius, None, None, None, dimension, num_frequencies, num_players, max_it, alpha, consensus_threshold, None, None, 0., 0., noise, num_memory, num_opinions, false, 0.)
 
-Discussion() = Discussion(Agent[], 0., search_radius, Float64[], (Float64[], Float64[]), Float64[], dimension, num_frequencies, num_players, max_it, alpha, consensus_threshold, Dict{Int, Array{Any, 1}}(), Dict{Int, Array{Any, 1}}(), 0., 0., noise, num_memory, num_opinions, true, Float64[], 0., 0.)
-Discussion(search_radius, dimension, num_frequencies, num_players, max_it, alpha, consensus_threshold, noise, num_memory, num_opinions) = Discussion(Agent[], 0., search_radius, Float64[], (Float64[], Float64[]), Float64[], dimension, num_frequencies, num_players, max_it, alpha, consensus_threshold, Dict{Int, Array{Any, 1}}(), Dict{Int, Array{Any, 1}}(), 0., 0., noise, num_memory, num_opinions, true, Float64[], 0., 0.)
-Discussion(dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, recording, frequencies) = Discussion(Agent[], 0., search_radius, Float64[], (Float64[], Float64[]), Float64[], dimension, num_frequencies, num_players, max_it, alpha, consensus_threshold, Dict{Int, Array{Any, 1}}(), Dict{Int, Array{Any, 1}}(), 0., 0., noise, num_memory, num_opinions, false, Float64[], 0., 0.)
+Discussion() = Discussion(Agent[], 0., search_radius, Float64[], (Float64[], Float64[]), Float64[], dimension, num_frequencies, num_players, max_it, alpha, consensus_threshold, Dict{Int, Array{Any, 1}}(), Dict{Int, Array{Any, 1}}(), 0., 0., noise, num_memory, num_opinions, true, Float64[], 0., 0)
+Discussion(search_radius, dimension, num_frequencies, num_players, max_it, alpha, consensus_threshold, noise, num_memory, num_opinions) = Discussion(Agent[], 0., search_radius, Float64[], (Float64[], Float64[]), Float64[], dimension, num_frequencies, num_players, max_it, alpha, consensus_threshold, Dict{Int, Array{Any, 1}}(), Dict{Int, Array{Any, 1}}(), 0., 0., noise, num_memory, num_opinions, true, Float64[], 0., 0)
+Discussion(dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, recording, frequencies) = Discussion(Agent[], 0., search_radius, Float64[], (Float64[], Float64[]), Float64[], dimension, num_frequencies, num_players, max_it, alpha, consensus_threshold, Dict{Int, Array{Any, 1}}(), Dict{Int, Array{Any, 1}}(), 0., 0., noise, num_memory, num_opinions, false, Float64[], 0., 0)
 
 function init!{Discussion}(self::Discussion, frequencies)
     self.players = Agent[]
     self.bounds = (zeros(self.dimension), ones(self.dimension))
     self.working_plan = random_plan(self.dimension, self.bounds)
     if is(frequencies, None)
-            generate_frequencies!(self)
+        generate_frequencies!(self)
+        self.max_sum = find_max_s(self)
+        self.min_sum = find_min_s(self)
     else
         self.frequencies = frequencies
     end
     self.trajectories = [-1 => Any[]]
     self.distances = [-1 => Any[]]
-    self.max_sum = find_max_s(self)
-    self.min_sum = find_min_s(self)
     
     init_players!(self)
     return self
@@ -268,7 +268,7 @@ function do_discussion!(discussion::Discussion, players::Array{Agent})
             player.own_util = get_utility(player, player.own_plan)
         end
         for i in 1:discussion.max_it
-            discussion.current_it = float(i)
+            discussion.current_it = i
             store_trajectories!(discussion, players)
             store_plan_distance!(discussion, players)
             if discussion.track_convergence

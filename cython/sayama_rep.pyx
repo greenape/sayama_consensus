@@ -364,7 +364,6 @@ class Agent(object):
         radius.
         """
 
-
         #min_bounds = [max(self.own_plan[x] - self.search_radius,self.bounds[0][x]) for x in xrange(self.dimension)]
         #max_bounds = [min(self.own_plan[x] + self.search_radius,self.bounds[1][x]) for x in xrange(self.dimension)]
         #search_bounds = zip(min_bounds, max_bounds)
