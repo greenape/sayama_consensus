@@ -773,11 +773,11 @@ class Discussion(object):
         return diff_sum / len(players)
 
 
-def convergence_fixed_paired(runs=100, players=3, landscapes=1):
+def convergence_fixed_paired(runs=100, players=3, landscapes=1,max_it=100,
+    step_size=1, max_mem=50):
     """ Run some number of replications of the three discussion types and return a results dictionary.
     """
     num_players = players
-    max_it = 50 * num_players
     consensus_threshold = -1  # No consensus
     results = {'fields': ['q', 'run', 'utility','fidelity','convergence', 'protocol','dimensions','landscape'], 'results': []}
     # q 0 - 10
@@ -788,7 +788,7 @@ def convergence_fixed_paired(runs=100, players=3, landscapes=1):
     for i in xrange(landscapes):
         d = Discussion(dimension, num_players, 0, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold)
         frequencies += [(d.frequencies, d.max_sum, d.min_sum)]
-    for num_memory in xrange(51):
+    for num_memory in xrange(0, max_mem+step_size, step_size):
         # 100 runs of each
         for i in xrange(runs):
             for l in xrange(landscapes):
