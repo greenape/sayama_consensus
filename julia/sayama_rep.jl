@@ -101,7 +101,7 @@ function convergence_fixed_paired(;runs::Int=100, players::Int=3, num_landscapes
     return results
 end
 
-r = @time(q_convergence(num_landscapes=1))
+r = q_convergence(num_landscapes=1)
 dump_experiment("juliatest.csv", r)
 
 """r = @time(convergence_fixed_paired(num_landscapes=1))

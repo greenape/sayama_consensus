@@ -9,7 +9,7 @@ end
 type Agent
 	own_plan::Array{Float64, 1}
     opinions::Dict{Array{Float64, 1}, Float64}
-    others_plan::Dict{Agent, BoundedQueue}
+    others_plan::Dict{Int, BoundedQueue}
     own_util::Float64
     noise_amp::Float64
     num_memory::Int
@@ -21,7 +21,7 @@ type Agent
     max_evals::Int
 end
 
-Agent(noise, num_memory, search_radius, player_num, bounds, dimension) = Agent(Float64[], Dict{Array{Float64, 1}, Float64}(), Dict{Agent, BoundedQueue}(), 0., noise, num_memory, search_radius, 0., player_num, bounds, dimension, 100)
+Agent(noise, num_memory, search_radius, player_num, bounds, dimension) = Agent(Float64[], Dict{Array{Float64, 1}, Float64}(), Dict{Int, BoundedQueue}(), 0., noise, num_memory, search_radius, 0., player_num, bounds, dimension, 100)
 
 function show(io, agent::Agent)
     print(io, "Player id: $agent.player_id, own plan is $agent.own_plan with utility $agent.own_util.")
@@ -122,7 +122,7 @@ function set_other_players!(self::Agent, players::Array{Agent})
 
         for player in players
             if player.player_id != self.player_id
-                self.others_plan[player] = BoundedQueue(Any[], self.num_memory)
+                self.others_plan[player.player_id] = BoundedQueue(Any[], self.num_memory)
             end
         end
 end
@@ -142,7 +142,7 @@ function consider_plan(self::Agent, agent::Agent, opinion::(Array{Float64}, Floa
         && either incorporate it, or incorporate && support
         it.
         """
-    push!(self.others_plan[agent], opinion)
+    push!(self.others_plan[agent.player_id], opinion)
     self.own_util = get_utility(self, self.own_plan)
     incorp = incorporate!(self, opinion, working_plan)
     back = false
