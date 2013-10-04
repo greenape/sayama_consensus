@@ -27,6 +27,8 @@ Run with julia driver.jl
 
 All three support multiple processes, but default to using 2.
 
+Python version is recommended, as somewhat counter intuitively, it seems to run faster than the other two versions.
+
 
 References
 
