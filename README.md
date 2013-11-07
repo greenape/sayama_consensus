@@ -9,10 +9,12 @@ The Julia version also makes use of the PyCall package to use an optimisation ro
 Cython implementation
 
 Built thusly:
-python setup.py build_ext --inplace
+
+    python setup.py build_ext --inplace
 
 Run like so:
-python run.py
+
+    python run.py
 
 Experiments should be placed in the run method of sayama_consensus.pyx
 
@@ -22,8 +24,13 @@ Simply run with python.
 
 Julia version
 
-Install PyCall with Pkg.add(pycall)
-Run with julia driver.jl
+Install PyCall with -
+
+    Pkg.add(pycall)
+
+Run with -
+
+    julia driver.jl
 
 All three support multiple processes, but default to using 2.
 
