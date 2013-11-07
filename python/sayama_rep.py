@@ -372,15 +372,15 @@ class Agent(object):
         # Work out possible new plans
         possible_plans = []
         util_working = get_utility(self, working_plan)
-        
+
         for i in xrange(0, len(working_plan)):
             tmp_plan = list(working_plan)
             tmp_plan[i] = self.own_plan[i]
             #print tmp_plan, "Tmp plan"
-            possible_plans += [(tuple(tmp_plan), get_utility(self, tmp_plan) - util_working)]
+            possible_plans += [(tuple(tmp_plan),
+                                get_utility(self, tmp_plan) - util_working)]
 
         return self.weighted_choice(possible_plans)
-
 
     def get_distance(self, plan):
         """ Get the distance between this plan and our
@@ -694,7 +694,6 @@ class Discussion(object):
         self.convergence += [self.pairwise_convergence(100)]
 
     def t_diff(self, n, players=None):
-        util_a, util_b, pair_avg, pair_sum, diff_sum
         
         if players is None:
             players = self.players
@@ -719,7 +718,6 @@ class Discussion(object):
         """ Compute the average percentage difference in utility functions
         of all agents across n random points in the problem space.
         """
-        diff_sum
         
         if players is None:
             players = self.players
@@ -741,7 +739,6 @@ class Discussion(object):
         """ Compute the average percentage difference between
         the constructed utility functions of agents and the
         true landscape. """
-        diff_sum
         
         if players is None:
             players = self.players
@@ -763,7 +760,7 @@ class Discussion(object):
 
 
 def convergence_fixed_paired(runs=100, players=3, landscapes=1,max_it=100,
-    step_size=1, max_mem=50):
+    step_size=1, max_mem=50, min_mem=0, frequencies=None):
     """ Run some number of replications of the three discussion types and return a results dictionary.
     """
     num_players = players
@@ -773,23 +770,25 @@ def convergence_fixed_paired(runs=100, players=3, landscapes=1,max_it=100,
     count = 1
 
     discussions = []
-    frequencies = []
-    for i in xrange(landscapes):
-        d = Discussion(dimension, num_players, 0, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold)
-        frequencies += [(d.frequencies, d.max_sum, d.min_sum)]
-    for num_memory in xrange(0, max_mem+step_size, step_size):
+    if frequencies is None:
+    	args = []
+    	for i in xrange(landscapes):
+        	args += [(dimension, num_players, 0, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold)]
+    	pool = Pool()
+    	frequencies = pool.map(make_landscape, args)
+    for num_memory in xrange(min_mem, max_mem+step_size, step_size):
         # 100 runs of each
         for i in xrange(runs):
-            for l in xrange(landscapes):
-                print "Making run %d of %d.." % (count, runs*landscapes*51)
+            for d in frequencies:
+                print "Making run %d of %d.." % (count, runs*landscapes*((max_mem-min_mem) + 1))
                 count += 1
                 discussions += [('Standard', i, num_memory, Discussion,dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, False, 2, d[0], d[1], d[2])]
-                discussions += [('Standard_100', i, num_memory, Discussion,dimension, num_players, num_memory, num_opinions, num_frequencies, 100, alpha, noise, search_radius, consensus_threshold, False, 2, d[0], d[1], d[2])]
+                #discussions += [('Standard_100', i, num_memory, Discussion,dimension, num_players, num_memory, num_opinions, num_frequencies, 100, alpha, noise, search_radius, consensus_threshold, False, 2, d[0], d[1], d[2])]
     random.shuffle(discussions)
     pool = Pool()
     results['results'] = pool.map(run_discussion, discussions)
     #print results['results']
-    return results
+    return results, frequencies
 
 def q_convergence(runs=100, players=3, landscapes=1):
     """ Run an experiment recording time to convergence of individual
@@ -805,9 +804,11 @@ def q_convergence(runs=100, players=3, landscapes=1):
     
     discussions = []
     frequencies = []
+    args = []
     for i in xrange(landscapes):
-        d = Discussion(dimension, num_players, 0, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold)
-        frequencies += [(d.frequencies, d.max_sum, d.min_sum)]
+        args += [(dimension, num_players, 0, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold)]
+    pool = Pool()
+    frequencies = pool.map(make_landscape, args)
     for num_memory in xrange(11):
         # 100 runs of each
         for i in xrange(runs):
@@ -816,17 +817,26 @@ def q_convergence(runs=100, players=3, landscapes=1):
                 count += 1
                 discussions += [('Standard', i, num_memory, Discussion,dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, False, 2, d[0], d[1], d[2])]
     random.shuffle(discussions)
-    pool = Pool(2)
     results['results'] = pool.map(run_q_convergence, discussions)
     print results['results']
     return results
 
+def make_landscape(args):
+	dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold = args
+	d = Discussion(dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold)
+	return (d.frequencies, d.max_sum, d.min_sum)
+
 
 def run():
-    #dump_experiment("convergence_fixed.csv", convergence_fixed_paired(players=3, runs=1, landscapes=100))
-    t = time()
-    dump_experiment("q_convergence.csv", q_convergence(players=3, runs=10, landscapes=1))
-    print time() -  t
+	results, frequencies = convergence_fixed_paired(players=3, runs=1, landscapes=100, max_mem=100, step_size=5, min_mem=50)
+	dump_experiment("convergence_fixed_high_q.csv", results)
+	results, frequencies = convergence_fixed_paired(players=3, runs=1, landscapes=100, max_it=150, max_mem=100, step_size=5, min_mem=50, frequencies=frequencies)
+	dump_experiment("long_convergence_fixed_high_q.csv", results)
+	#results, frequencies = convergence_fixed_paired(players=3, runs=1, landscapes=100, max_it=300, max_mem=100, step_size=5, min_mem=50, frequencies=frequencies)
+	#dump_experiment("very_long_convergence_fixed.csv", results)
+	t = time()
+	#dump_experiment("q_convergence.csv", q_convergence(players=3, runs=1, landscapes=100))
+	print time() -  t
 
 if  __name__ =='__main__':
     run()

@@ -774,7 +774,7 @@ class Discussion(object):
 
 
 def convergence_fixed_paired(runs=100, players=3, landscapes=1,max_it=100,
-    step_size=1, max_mem=50):
+    step_size=1, max_mem=50, frequencies=None):
     """ Run some number of replications of the three discussion types and return a results dictionary.
     """
     num_players = players
@@ -784,23 +784,24 @@ def convergence_fixed_paired(runs=100, players=3, landscapes=1,max_it=100,
     cdef unsigned int count = 1
     cdef unsigned int i, step
     discussions = []
-    frequencies = []
-    for i in xrange(landscapes):
-        d = Discussion(dimension, num_players, 0, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold)
-        frequencies += [(d.frequencies, d.max_sum, d.min_sum)]
+    if frequencies is None:
+        args = []
+        for i in xrange(landscapes):
+            args += [(dimension, num_players, 0, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold)]
+        pool = Pool()
+        frequencies = pool.map(make_landscape, args)
     for num_memory in xrange(0, max_mem+step_size, step_size):
         # 100 runs of each
         for i in xrange(runs):
-            for l in xrange(landscapes):
+            for d in frequencies:
                 print "Making run %d of %d.." % (count, runs*landscapes*51)
                 count += 1
                 discussions += [('Standard', i, num_memory, Discussion,dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold, False, 2, d[0], d[1], d[2])]
-                discussions += [('Standard_100', i, num_memory, Discussion,dimension, num_players, num_memory, num_opinions, num_frequencies, 100, alpha, noise, search_radius, consensus_threshold, False, 2, d[0], d[1], d[2])]
     random.shuffle(discussions)
     pool = Pool()
     results['results'] = pool.map(run_discussion, discussions)
     #print results['results']
-    return results
+    return results, frequencies
 
 def q_convergence(runs=100, players=3, landscapes=1):
     """ Run an experiment recording time to convergence of individual
@@ -816,9 +817,11 @@ def q_convergence(runs=100, players=3, landscapes=1):
     cdef unsigned int i, step
     discussions = []
     frequencies = []
+    args = []
     for i in xrange(landscapes):
-        d = Discussion(dimension, num_players, 0, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold)
-        frequencies += [(d.frequencies, d.max_sum, d.min_sum)]
+        args += [(dimension, num_players, 0, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold)]
+    pool = Pool()
+    frequencies = pool.map(make_landscape, args)
     for num_memory in xrange(11):
         # 100 runs of each
         for i in xrange(runs):
@@ -832,9 +835,18 @@ def q_convergence(runs=100, players=3, landscapes=1):
     print results['results']
     return results
 
+def make_landscape(args):
+    dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold = args
+    d = Discussion(dimension, num_players, num_memory, num_opinions, num_frequencies, max_it, alpha, noise, search_radius, consensus_threshold)
+    return (d.frequencies, d.max_sum, d.min_sum)
 
 def run():
-    #dump_experiment("convergence_fixed.csv", convergence_fixed_paired(players=3, runs=1, landscapes=100))
-    t = time()
-    dump_experiment("q_convergence.csv", q_convergence(players=3, runs=10, landscapes=1))
-    print time() -  t
+    #results, frequencies = convergence_fixed_paired(players=3, runs=1, landscapes=100)
+    #dump_experiment("convergence_fixed.csv", results)
+    results, frequencies = convergence_fixed_paired(players=3, runs=1, landscapes=100, max_it=150)
+    dump_experiment("long_convergence_fixed.csv", results)
+    results, frequencies = convergence_fixed_paired(players=3, runs=1, landscapes=100, max_it=300, max_mem=100, step_size=5, frequencies=frequencies)
+    dump_experiment("very_long_convergence_fixed.csv", results)
+    #t = time()
+    #dump_experiment("q_convergence.csv", q_convergence(players=3, runs=1, landscapes=100))
+    #print time() -  t
