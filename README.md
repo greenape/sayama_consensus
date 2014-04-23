@@ -39,4 +39,4 @@ Python version is recommended, as somewhat counter intuitively, it seems to run 
 
 References
 
-Sayama, H., Farrell, D. & Dionne, S., 2011. The effects of mental model formation on group decision making: An agent-based simulation. Complexity, 16(3), pp.49–57.
+[Sayama, H., Farrell, D. & Dionne, S., 2011. The effects of mental model formation on group decision making: An agent-based simulation. Complexity, 16(3), pp.49–57.](http://onlinelibrary.wiley.com/doi/10.1002/cplx.20329/abstract)
